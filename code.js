@@ -39,17 +39,28 @@
   };
   var COMPONENT_COLOR = { r: 0.5, g: 0.15, b: 0.55 };
   var AMINO_RADII = [2, 4, 8, 12, 16, 24, 32, 40, 48, 64];
+  async function getRecognizedCollectionIds() {
+    const ids = /* @__PURE__ */ new Set();
+    try {
+      const collections = await figma.variables.getLocalVariableCollectionsAsync();
+      for (const collection of collections)
+        ids.add(collection.id);
+    } catch (e) {
+    }
+    return ids;
+  }
   async function getActiveModes(rootNode) {
     var _a;
     const modes = [];
+    const collectionIds = await getRecognizedCollectionIds();
     if (!("resolvedVariableModes" in rootNode))
-      return { brandName: "Unknown", modes, collectionIds: /* @__PURE__ */ new Set() };
+      return { brandName: "Unknown", modes, collectionIds };
     const resolvedModes = rootNode.resolvedVariableModes;
     if (!resolvedModes)
-      return { brandName: "Unknown", modes, collectionIds: /* @__PURE__ */ new Set() };
-    const collectionIds = new Set(Object.keys(resolvedModes));
+      return { brandName: "Unknown", modes, collectionIds };
     const modeNameCounts = {};
     for (const collectionId of Object.keys(resolvedModes)) {
+      collectionIds.add(collectionId);
       const modeId = resolvedModes[collectionId];
       try {
         const collection = await figma.variables.getVariableCollectionByIdAsync(collectionId);
@@ -165,21 +176,21 @@
     if (!alias || !alias.id)
       return null;
     const category = categoryForColorIssue(node, isStroke);
-    const { variable, deprecated, otherSystem } = await checkTokenIdentity(alias, recognizedCollectionIds);
-    if (!variable) {
-      return { node, issue: `${property} references a token that could not be resolved (deleted/unavailable)`, category, priority: "critical", dsToken: "", solution: "Re-bind to a valid Amino token" };
-    }
-    if (deprecated) {
-      return { node, issue: `${property} uses deprecated token: ${variable.name}`, category, priority: "critical", dsToken: "", solution: "Migrate off this Old Tokens reference to its current Amino equivalent" };
-    }
-    if (otherSystem) {
-      return { node, issue: `${property} uses a token from an unrecognized collection: ${variable.name}`, category, priority: "warning", dsToken: "", solution: "Confirm this token is meant to be here \u2014 it is not part of the brand collections driving this file" };
-    }
     const role = detectElementRole(node);
     const expectedRole = isStroke ? "border" : role;
+    const suggested = ROLE_SUGGESTED_TOKEN[expectedRole] || "the matching Amino Semantic token for this element";
+    const { variable, deprecated, otherSystem } = await checkTokenIdentity(alias, recognizedCollectionIds);
+    if (!variable) {
+      return { node, issue: `${property} references a token that could not be resolved (deleted/unavailable)`, category, priority: "critical", dsToken: suggested, solution: `Re-bind to a valid Amino token \u2014 try ${suggested}` };
+    }
+    if (deprecated) {
+      return { node, issue: `${property} uses deprecated token: ${variable.name}`, category, priority: "critical", dsToken: suggested, solution: `Migrate off this Old Tokens reference \u2014 nearest current equivalent: ${suggested}` };
+    }
+    if (otherSystem) {
+      return { node, issue: `${property} uses a token that doesn't exist in the Amino design system: ${variable.name}`, category, priority: "critical", dsToken: suggested, solution: `This token isn't part of Amino \u2014 replace with ${suggested}` };
+    }
     const allowedTokens = ROLE_ALLOWED_TOKENS[expectedRole];
     const roleLabel = ROLE_LABELS[expectedRole];
-    const suggested = ROLE_SUGGESTED_TOKEN[expectedRole];
     const tokenCat = classifyTokenName(variable.name);
     if (tokenCat !== "unknown" && !allowedTokens.includes(tokenCat)) {
       return { node, issue: `${property} using ${tokenCat} token: ${variable.name}`, category, priority: "critical", dsToken: suggested, solution: `${roleLabel} should use ${allowedTokens.join("/")} token \u2192 ${suggested}` };
@@ -188,12 +199,15 @@
   }
   async function checkColorStyleIssue(node, property, styleId, isStroke) {
     const category = categoryForColorIssue(node, isStroke);
+    const role = detectElementRole(node);
+    const expectedRole = isStroke ? "border" : role;
+    const suggested = ROLE_SUGGESTED_TOKEN[expectedRole] || "the matching Amino Semantic token for this element";
     try {
       const style = await figma.getStyleByIdAsync(styleId);
       if (!style) {
-        return { node, issue: `${property} references a style that could not be resolved (deleted/unavailable)`, category, priority: "critical", dsToken: "", solution: "Re-bind to a valid Amino token variable" };
+        return { node, issue: `${property} references a style that could not be resolved (deleted/unavailable)`, category, priority: "critical", dsToken: suggested, solution: `Re-bind to a valid Amino token variable \u2014 try ${suggested}` };
       }
-      return { node, issue: `${property} uses a Figma Style, not an Amino variable: "${style.name}"`, category, priority: "critical", dsToken: "", solution: "Replace with the equivalent Amino Semantic colour variable" };
+      return { node, issue: `${property} uses a Figma Style, not an Amino variable: "${style.name}"`, category, priority: "critical", dsToken: suggested, solution: `Replace with the equivalent Amino Semantic colour variable \u2014 try ${suggested}` };
     } catch (e) {
       return null;
     }
@@ -331,12 +345,14 @@
           const suggested = suggestTextStyle(fontSize);
           issues.push({ node, issue: `No text style (${fontSize}px)`, category: "Text & Typography", priority: "critical", dsToken: suggested, solution: `Apply Amino style \u2192 ${suggested}` });
         } else if (typeof textNode.textStyleId === "string") {
+          const fontSize = typeof textNode.fontSize === "number" ? textNode.fontSize : 14;
+          const suggestedStyle = suggestTextStyle(fontSize);
           try {
             const style = await figma.getStyleByIdAsync(textNode.textStyleId);
             if (!style) {
-              issues.push({ node, issue: "Text style references a style that could not be resolved (deleted/unavailable)", category: "Text & Typography", priority: "critical", dsToken: "", solution: "Re-bind to a valid Amino type-ramp style" });
+              issues.push({ node, issue: "Text style references a style that could not be resolved (deleted/unavailable)", category: "Text & Typography", priority: "critical", dsToken: suggestedStyle, solution: `Re-bind to a valid Amino style \u2014 try ${suggestedStyle}` });
             } else if (!looksLikeAminoTextStyle(style.name)) {
-              issues.push({ node, issue: `Text style may not be from the Amino type ramp: "${style.name}"`, category: "Text & Typography", priority: "warning", dsToken: "", solution: "Confirm this uses an Amino Display/Body/Caption/Label style, or apply the correct one" });
+              issues.push({ node, issue: `Text style doesn't exist in the Amino type ramp: "${style.name}"`, category: "Text & Typography", priority: "critical", dsToken: suggestedStyle, solution: `This style isn't part of Amino \u2014 replace with ${suggestedStyle}` });
             }
           } catch (e) {
           }
@@ -346,18 +362,19 @@
         const n = node;
         if (typeof n.cornerRadius === "number" && n.cornerRadius > 0) {
           const boundAlias = n.boundVariables && n.boundVariables.topLeftRadius;
+          const closest = findClosestRadius(n.cornerRadius);
+          const suggestedRadius = `Primitive/Radius/radius-${closest} (${closest}px)`;
           if (boundAlias) {
             const { variable, deprecated, otherSystem } = await checkTokenIdentity(boundAlias, brandInfo.collectionIds);
-            if (variable) {
-              if (deprecated) {
-                issues.push({ node, issue: `Corner radius uses deprecated token: ${variable.name}`, category: "Radius", priority: "critical", dsToken: "", solution: "Migrate off this Old Tokens reference" });
-              } else if (otherSystem) {
-                issues.push({ node, issue: `Corner radius uses a token from an unrecognized collection: ${variable.name}`, category: "Radius", priority: "warning", dsToken: "", solution: "Confirm this token belongs here" });
-              }
+            if (!variable) {
+              issues.push({ node, issue: "Corner radius references a token that could not be resolved (deleted/unavailable)", category: "Radius", priority: "critical", dsToken: suggestedRadius, solution: `Re-bind to a valid Amino radius token \u2014 try ${suggestedRadius}` });
+            } else if (deprecated) {
+              issues.push({ node, issue: `Corner radius uses deprecated token: ${variable.name}`, category: "Radius", priority: "critical", dsToken: suggestedRadius, solution: `Migrate off this Old Tokens reference \u2014 nearest current equivalent: ${suggestedRadius}` });
+            } else if (otherSystem) {
+              issues.push({ node, issue: `Corner radius uses a token that doesn't exist in the Amino design system: ${variable.name}`, category: "Radius", priority: "critical", dsToken: suggestedRadius, solution: `This token isn't part of Amino \u2014 replace with ${suggestedRadius}` });
             }
           } else if (!AMINO_RADII.includes(n.cornerRadius)) {
-            const closest = findClosestRadius(n.cornerRadius);
-            issues.push({ node, issue: `Non-standard radius: ${n.cornerRadius}px`, category: "Radius", priority: "info", dsToken: `Primitive/Radius/radius-${closest}`, solution: `Use Amino token \u2192 Primitive/Radius/radius-${closest} (${closest}px)` });
+            issues.push({ node, issue: `Non-standard radius: ${n.cornerRadius}px`, category: "Radius", priority: "info", dsToken: suggestedRadius, solution: `Use Amino token \u2192 ${suggestedRadius}` });
           }
         }
       }
