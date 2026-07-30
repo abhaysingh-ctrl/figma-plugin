@@ -1,16 +1,15 @@
 {
-  "name": "test-plugin",
-  "id": "1664575588037393575",
+  "name": "Amino Helps",
+  "id": "amino-helps-brightlifecare",
   "api": "1.0.0",
   "main": "code.js",
-  "capabilities": [],
-  "enableProposedApi": false,
+  "ui": {
+    "ui": "ui.html"
+  },
   "documentAccess": "dynamic-page",
   "editorType": [
     "figma",
-    "figjam",
-    "slides",
-    "buzz"
+    "figjam"
   ],
   "networkAccess": {
     "allowedDomains": [
