@@ -592,13 +592,13 @@ function pushActionStates(): void {
   })
 }
 
-figma.showUI(__uiFiles__["ui"], { width: 280, height: 400 })
+figma.showUI(__uiFiles__["ui"], { width: 280, height: 480 })
 pushActionStates()
 figma.on('selectionchange', () => { if (!isExecuting) pushActionStates() })
 
 figma.ui.onmessage = (msg: { type: string; id?: string; params?: Partial<Params>; height?: number }) => {
   if (msg.type === 'resize' && msg.height) {
-    figma.ui.resize(280, Math.max(120, Math.min(900, Math.round(msg.height))))
+    figma.ui.resize(280, Math.max(120, Math.min(600, Math.round(msg.height))))
     return
   }
   if (msg.type === 'action') {

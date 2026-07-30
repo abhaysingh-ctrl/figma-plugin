@@ -26,8 +26,8 @@
   .info-box p:last-child { margin-bottom: 0; }
   .btn { width: 100%; padding: 10px; border: none; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; margin-bottom: 8px; transition: opacity 0.15s; }
   .btn:disabled { opacity: 0.4; cursor: default; }
-  .btn-primary { background: #0d6efd; color: #fff; }
-  .btn-primary:hover:not(:disabled) { background: #0b5ed7; }
+  .btn-primary { background: #000; color: #fff; }
+  .btn-primary:hover:not(:disabled) { background: #262626; }
   .btn-outline { background: transparent; border: 1.5px solid #ddd; color: #555; }
   .btn-outline:hover:not(:disabled) { border-color: #bbb; color: #333; }
 </style>
@@ -86,9 +86,12 @@
       }
     };
 
-    new ResizeObserver(() => {
-      parent.postMessage({ pluginMessage: { type: 'resize', height: document.body.scrollHeight + 32 } }, '*');
-    }).observe(document.body);
+    function reportSize() {
+      const height = Math.ceil(btnClear.getBoundingClientRect().bottom + 16);
+      parent.postMessage({ pluginMessage: { type: 'resize', height } }, '*');
+    }
+    new ResizeObserver(reportSize).observe(document.body);
+    requestAnimationFrame(reportSize);
   </script>
 </body>
 </html>

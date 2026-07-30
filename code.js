@@ -657,7 +657,7 @@
       }
     });
   }
-  figma.showUI(__uiFiles__["ui"], { width: 280, height: 400 });
+  figma.showUI(__uiFiles__["ui"], { width: 280, height: 480 });
   pushActionStates();
   figma.on("selectionchange", () => {
     if (!isExecuting)
@@ -665,7 +665,7 @@
   });
   figma.ui.onmessage = (msg) => {
     if (msg.type === "resize" && msg.height) {
-      figma.ui.resize(280, Math.max(120, Math.min(900, Math.round(msg.height))));
+      figma.ui.resize(280, Math.max(120, Math.min(600, Math.round(msg.height))));
       return;
     }
     if (msg.type === "action") {
