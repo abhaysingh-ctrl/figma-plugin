@@ -32,10 +32,11 @@
     var _a;
     const modes = [];
     if (!("resolvedVariableModes" in rootNode))
-      return { brandName: "Unknown", modes };
+      return { brandName: "Unknown", modes, collectionIds: /* @__PURE__ */ new Set() };
     const resolvedModes = rootNode.resolvedVariableModes;
     if (!resolvedModes)
-      return { brandName: "Unknown", modes };
+      return { brandName: "Unknown", modes, collectionIds: /* @__PURE__ */ new Set() };
+    const collectionIds = new Set(Object.keys(resolvedModes));
     const modeNameCounts = {};
     for (const collectionId of Object.keys(resolvedModes)) {
       const modeId = resolvedModes[collectionId];
@@ -63,7 +64,59 @@
         brandName = name;
       }
     }
-    return { brandName, modes };
+    return { brandName, modes, collectionIds };
+  }
+  function isDeprecatedTokenName(name) {
+    const lower = name.toLowerCase();
+    return lower.startsWith("old tokens") || lower.includes("/old tokens/") || lower.includes("old-buttons");
+  }
+  async function checkTokenIdentity(alias, recognizedCollectionIds) {
+    const variable = await figma.variables.getVariableByIdAsync(alias.id);
+    if (!variable)
+      return { variable: null, deprecated: false, otherSystem: false };
+    const deprecated = isDeprecatedTokenName(variable.name);
+    const otherSystem = recognizedCollectionIds.size > 0 && !recognizedCollectionIds.has(variable.variableCollectionId);
+    return { variable, deprecated, otherSystem };
+  }
+  async function scanOffSystem(node, recognizedCollectionIds) {
+    const flags = [];
+    const bound = node.boundVariables;
+    if (bound) {
+      const aliasesToCheck = [];
+      if (Array.isArray(bound.fills))
+        aliasesToCheck.push(...bound.fills.map((a) => ({ alias: a, property: "Fill" })));
+      if (Array.isArray(bound.strokes))
+        aliasesToCheck.push(...bound.strokes.map((a) => ({ alias: a, property: "Stroke" })));
+      if (bound.topLeftRadius)
+        aliasesToCheck.push({ alias: bound.topLeftRadius, property: "Corner radius" });
+      for (const { alias, property } of aliasesToCheck) {
+        if (!alias || !alias.id)
+          continue;
+        try {
+          const { variable, deprecated, otherSystem } = await checkTokenIdentity(alias, recognizedCollectionIds);
+          if (!variable)
+            continue;
+          if (deprecated) {
+            flags.push({ node, kind: "Token", detail: `${property} uses deprecated token: ${variable.name}`, recommendation: "Migrate off this Old Tokens reference to its current Amino equivalent" });
+          } else if (otherSystem) {
+            flags.push({ node, kind: "Token", detail: `${property} uses a token from an unrecognized collection: ${variable.name}`, recommendation: "Confirm this token is meant to be here \u2014 it is not part of the brand collections driving this file" });
+          }
+        } catch (e) {
+        }
+      }
+    }
+    if (node.type === "INSTANCE") {
+      try {
+        const main = await node.getMainComponentAsync();
+        if (!main) {
+          flags.push({ node, kind: "Component", detail: "Instance\u2019s source component could not be resolved (deleted or unavailable)", recommendation: "Re-link this instance to a valid Amino library component" });
+        } else if (main.remote === false) {
+          flags.push({ node, kind: "Component", detail: `Instance of a locally-defined component, not a library component: "${main.name}"`, recommendation: "Replace with an instance of the equivalent Amino library component" });
+        }
+      } catch (e) {
+      }
+    }
+    return flags;
   }
   function detectElementRole(node) {
     if (node.type === "TEXT")
@@ -236,7 +289,9 @@
     const referenceNode = roots[0];
     const brandInfo = await getActiveModes(referenceNode);
     const issues = [];
+    const offSystemFlags = [];
     for (const node of allNodes) {
+      offSystemFlags.push(...await scanOffSystem(node, brandInfo.collectionIds));
       if (params.checkColors && "fills" in node) {
         const fills = node.fills;
         if (Array.isArray(fills)) {
@@ -303,7 +358,7 @@
       const order = { critical: 0, warning: 1, info: 2 };
       return order[a.priority] - order[b.priority];
     });
-    return { issues, brandInfo };
+    return { issues, brandInfo, offSystemFlags };
   }
   function selectBalancedByPriority(issues, capPerPriority) {
     const counts = { critical: 0, warning: 0, info: 0 };
@@ -485,32 +540,32 @@
     }
     return { created, shown: pinIssues.length, total: issues.length };
   }
-  async function createReportTable(issues, brandInfo) {
-    var _a;
-    await figma.loadFontAsync({ family: "Inter", style: "Regular" });
+  async function createSummarySheet(brandInfo, critCount, warnCount, infoCount, offSystemCount) {
     await figma.loadFontAsync({ family: "Inter", style: "Bold" });
+    await figma.loadFontAsync({ family: "Inter", style: "Regular" });
     await figma.loadFontAsync({ family: "Inter", style: "Medium" });
-    const TABLE_W = 700;
-    const report = figma.createFrame();
-    report.name = `${TAG_PREFIX}Audit Report`;
-    report.resize(TABLE_W, 1);
-    report.layoutMode = "VERTICAL";
-    report.primaryAxisSizingMode = "AUTO";
-    report.paddingTop = 28;
-    report.paddingBottom = 28;
-    report.paddingLeft = 28;
-    report.paddingRight = 28;
-    report.itemSpacing = 20;
-    report.fills = [{ type: "SOLID", color: { r: 1, g: 1, b: 1 } }];
-    report.cornerRadius = 16;
-    report.strokes = [{ type: "SOLID", color: { r: 0.9, g: 0.9, b: 0.9 } }];
-    report.strokeWeight = 1;
+    const SHEET_W = 700;
+    const sheet = figma.createFrame();
+    sheet.name = `${TAG_PREFIX}Audit Summary`;
+    sheet.resize(SHEET_W, 1);
+    sheet.layoutMode = "VERTICAL";
+    sheet.primaryAxisSizingMode = "AUTO";
+    sheet.paddingTop = 28;
+    sheet.paddingBottom = 28;
+    sheet.paddingLeft = 28;
+    sheet.paddingRight = 28;
+    sheet.itemSpacing = 14;
+    sheet.fills = [{ type: "SOLID", color: { r: 1, g: 1, b: 1 } }];
+    sheet.cornerRadius = 16;
+    sheet.strokes = [{ type: "SOLID", color: { r: 0.9, g: 0.9, b: 0.9 } }];
+    sheet.strokeWeight = 1;
+    sheet.clipsContent = false;
     const title = figma.createText();
     title.fontName = { family: "Inter", style: "Bold" };
     title.characters = "Amino Helps \u2014 Design Audit Report";
     title.fontSize = 20;
     title.fills = [{ type: "SOLID", color: { r: 0.08, g: 0.08, b: 0.08 } }];
-    report.appendChild(title);
+    sheet.appendChild(title);
     if (brandInfo.modes.length > 0) {
       const modeBox = figma.createFrame();
       modeBox.name = `${TAG_PREFIX}Modes`;
@@ -524,7 +579,7 @@
       modeBox.itemSpacing = 4;
       modeBox.cornerRadius = 10;
       modeBox.fills = [{ type: "SOLID", color: { r: 0.96, g: 0.96, b: 0.98 } }];
-      report.appendChild(modeBox);
+      sheet.appendChild(modeBox);
       modeBox.layoutAlign = "STRETCH";
       const brandLbl = figma.createText();
       brandLbl.fontName = { family: "Inter", style: "Bold" };
@@ -540,50 +595,71 @@
       modeSummary.fills = [{ type: "SOLID", color: { r: 0.4, g: 0.4, b: 0.5 } }];
       modeBox.appendChild(modeSummary);
     }
-    const critCount = issues.filter((i) => i.priority === "critical").length;
-    const warnCount = issues.filter((i) => i.priority === "warning").length;
-    const infoCount = issues.filter((i) => i.priority === "info").length;
     const summaryText = figma.createText();
     summaryText.fontName = { family: "Inter", style: "Medium" };
-    summaryText.characters = `Total: ${issues.length} issues  |  Critical: ${critCount}  |  Warning: ${warnCount}  |  Info: ${infoCount}`;
+    summaryText.characters = `Total: ${critCount + warnCount + infoCount} issues  |  Critical: ${critCount}  |  Warning: ${warnCount}  |  Info: ${infoCount}  |  Off-system flags: ${offSystemCount}`;
     summaryText.fontSize = 13;
     summaryText.fills = [{ type: "SOLID", color: { r: 0.25, g: 0.25, b: 0.25 } }];
-    report.appendChild(summaryText);
-    const divider1 = figma.createRectangle();
-    divider1.name = `${TAG_PREFIX}divider`;
-    divider1.resize(TABLE_W - 56, 1);
-    divider1.fills = [{ type: "SOLID", color: { r: 0.92, g: 0.92, b: 0.92 } }];
-    report.appendChild(divider1);
-    divider1.layoutAlign = "STRETCH";
-    let currentPriority = null;
-    const REPORT_SAFETY_CAP = 500;
-    const displayIssues = issues.length > REPORT_SAFETY_CAP ? selectBalancedByPriority(issues, Math.ceil(REPORT_SAFETY_CAP / 3)) : issues;
-    const originalIndex = /* @__PURE__ */ new Map();
-    issues.forEach((iss, idx) => originalIndex.set(iss, idx + 1));
-    const shownCounts = { critical: 0, warning: 0, info: 0 };
-    for (const issue of displayIssues)
-      shownCounts[issue.priority]++;
+    summaryText.textAutoResize = "HEIGHT";
+    sheet.appendChild(summaryText);
+    summaryText.layoutAlign = "STRETCH";
+    const note = figma.createText();
+    note.fontName = { family: "Inter", style: "Regular" };
+    note.characters = "Full lists below: one sheet per priority, plus a dedicated Off-System sheet for anything not part of the Amino design system.";
+    note.fontSize = 11;
+    note.fills = [{ type: "SOLID", color: { r: 0.55, g: 0.55, b: 0.55 } }];
+    note.textAutoResize = "HEIGHT";
+    sheet.appendChild(note);
+    note.layoutAlign = "STRETCH";
+    const footer = figma.createText();
+    footer.fontName = { family: "Inter", style: "Regular" };
+    footer.characters = `Generated by Amino Helps  \u2022  ${(/* @__PURE__ */ new Date()).toLocaleDateString()}  \u2022  Amino Design System`;
+    footer.fontSize = 10;
+    footer.fills = [{ type: "SOLID", color: { r: 0.6, g: 0.6, b: 0.6 } }];
+    sheet.appendChild(footer);
+    return sheet;
+  }
+  async function createPrioritySheet(priorityIssues, priority, originalIndex) {
+    var _a;
+    await figma.loadFontAsync({ family: "Inter", style: "Regular" });
+    await figma.loadFontAsync({ family: "Inter", style: "Bold" });
+    await figma.loadFontAsync({ family: "Inter", style: "Medium" });
+    const SHEET_W = 700;
+    const SHEET_CAP = 300;
+    const displayIssues = priorityIssues.slice(0, SHEET_CAP);
+    const sheet = figma.createFrame();
+    sheet.name = `${TAG_PREFIX}${priority[0].toUpperCase()}${priority.slice(1)} Issues`;
+    sheet.resize(SHEET_W, 1);
+    sheet.layoutMode = "VERTICAL";
+    sheet.primaryAxisSizingMode = "AUTO";
+    sheet.paddingTop = 28;
+    sheet.paddingBottom = 28;
+    sheet.paddingLeft = 28;
+    sheet.paddingRight = 28;
+    sheet.itemSpacing = 10;
+    sheet.fills = [{ type: "SOLID", color: { r: 1, g: 1, b: 1 } }];
+    sheet.cornerRadius = 16;
+    sheet.strokes = [{ type: "SOLID", color: PRIORITY_COLORS[priority] }];
+    sheet.strokeWeight = 1.5;
+    sheet.clipsContent = false;
+    const title = figma.createText();
+    title.fontName = { family: "Inter", style: "Bold" };
+    title.characters = priorityIssues.length > SHEET_CAP ? `${priority.toUpperCase()} Issues \u2014 showing ${SHEET_CAP} of ${priorityIssues.length}` : `${priority.toUpperCase()} Issues (${priorityIssues.length})`;
+    title.fontSize = 18;
+    title.fills = [{ type: "SOLID", color: PRIORITY_COLORS[priority] }];
+    sheet.appendChild(title);
+    if (displayIssues.length === 0) {
+      const empty = figma.createText();
+      empty.fontName = { family: "Inter", style: "Regular" };
+      empty.characters = `No ${priority} issues found \u2014 clean on this check.`;
+      empty.fontSize = 12;
+      empty.fills = [{ type: "SOLID", color: { r: 0.3, g: 0.55, b: 0.35 } }];
+      sheet.appendChild(empty);
+      return sheet;
+    }
     for (let i = 0; i < displayIssues.length; i++) {
       const issue = displayIssues[i];
       const num = (_a = originalIndex.get(issue)) != null ? _a : i + 1;
-      if (issue.priority !== currentPriority) {
-        currentPriority = issue.priority;
-        if (i > 0) {
-          const spacer = figma.createFrame();
-          spacer.name = `${TAG_PREFIX}spacer`;
-          spacer.resize(10, 8);
-          spacer.fills = [];
-          report.appendChild(spacer);
-        }
-        const totalForPriority = issue.priority === "critical" ? critCount : issue.priority === "warning" ? warnCount : infoCount;
-        const shownForPriority = shownCounts[issue.priority];
-        const sectionTitle = figma.createText();
-        sectionTitle.fontName = { family: "Inter", style: "Bold" };
-        sectionTitle.characters = shownForPriority < totalForPriority ? `${issue.priority.toUpperCase()} (showing ${shownForPriority} of ${totalForPriority})` : `${issue.priority.toUpperCase()} (${totalForPriority})`;
-        sectionTitle.fontSize = 12;
-        sectionTitle.fills = [{ type: "SOLID", color: PRIORITY_COLORS[issue.priority] }];
-        report.appendChild(sectionTitle);
-      }
       const row = figma.createFrame();
       row.name = `${TAG_PREFIX}Row ${num}`;
       row.layoutMode = "VERTICAL";
@@ -595,11 +671,11 @@
       row.itemSpacing = 3;
       row.cornerRadius = 8;
       row.fills = i % 2 === 0 ? [{ type: "SOLID", color: { r: 0.98, g: 0.98, b: 0.99 } }] : [];
-      report.appendChild(row);
+      sheet.appendChild(row);
       row.layoutAlign = "STRETCH";
       const line1 = figma.createText();
       line1.fontName = { family: "Inter", style: "Bold" };
-      line1.characters = `#${num}  ${issue.node.name}`;
+      line1.characters = `#${num}  ${issue.node && !issue.node.removed ? issue.node.name : "(removed)"}`;
       line1.fontSize = 11;
       line1.fills = [{ type: "SOLID", color: { r: 0.12, g: 0.12, b: 0.12 } }];
       line1.textAutoResize = "WIDTH_AND_HEIGHT";
@@ -622,13 +698,93 @@
       row.appendChild(line3);
       line3.layoutAlign = "STRETCH";
     }
-    const footer = figma.createText();
-    footer.fontName = { family: "Inter", style: "Regular" };
-    footer.characters = `Generated by Amino Helps  \u2022  ${(/* @__PURE__ */ new Date()).toLocaleDateString()}  \u2022  Amino Design System`;
-    footer.fontSize = 10;
-    footer.fills = [{ type: "SOLID", color: { r: 0.6, g: 0.6, b: 0.6 } }];
-    report.appendChild(footer);
-    return report;
+    return sheet;
+  }
+  async function createOffSystemSheet(flags) {
+    await figma.loadFontAsync({ family: "Inter", style: "Regular" });
+    await figma.loadFontAsync({ family: "Inter", style: "Bold" });
+    await figma.loadFontAsync({ family: "Inter", style: "Medium" });
+    const SHEET_W = 700;
+    const OFFSYS_COLOR = { r: 0.5, g: 0.15, b: 0.55 };
+    const sheet = figma.createFrame();
+    sheet.name = `${TAG_PREFIX}Off-System Flags`;
+    sheet.resize(SHEET_W, 1);
+    sheet.layoutMode = "VERTICAL";
+    sheet.primaryAxisSizingMode = "AUTO";
+    sheet.paddingTop = 28;
+    sheet.paddingBottom = 28;
+    sheet.paddingLeft = 28;
+    sheet.paddingRight = 28;
+    sheet.itemSpacing = 10;
+    sheet.fills = [{ type: "SOLID", color: { r: 1, g: 1, b: 1 } }];
+    sheet.cornerRadius = 16;
+    sheet.strokes = [{ type: "SOLID", color: OFFSYS_COLOR }];
+    sheet.strokeWeight = 1.5;
+    sheet.clipsContent = false;
+    const title = figma.createText();
+    title.fontName = { family: "Inter", style: "Bold" };
+    title.characters = `Off-System Flags (${flags.length})`;
+    title.fontSize = 18;
+    title.fills = [{ type: "SOLID", color: OFFSYS_COLOR }];
+    sheet.appendChild(title);
+    const subtitle = figma.createText();
+    subtitle.fontName = { family: "Inter", style: "Regular" };
+    subtitle.characters = "Components not sourced from the Amino library, and elements bound to deprecated or unrecognized (non-Amino) tokens.";
+    subtitle.fontSize = 11;
+    subtitle.fills = [{ type: "SOLID", color: { r: 0.4, g: 0.4, b: 0.4 } }];
+    subtitle.textAutoResize = "HEIGHT";
+    sheet.appendChild(subtitle);
+    subtitle.layoutAlign = "STRETCH";
+    if (flags.length === 0) {
+      const empty = figma.createText();
+      empty.fontName = { family: "Inter", style: "Regular" };
+      empty.characters = "No off-system components or tokens found.";
+      empty.fontSize = 12;
+      empty.fills = [{ type: "SOLID", color: { r: 0.3, g: 0.55, b: 0.35 } }];
+      sheet.appendChild(empty);
+      return sheet;
+    }
+    for (let i = 0; i < flags.length; i++) {
+      const flag = flags[i];
+      const row = figma.createFrame();
+      row.name = `${TAG_PREFIX}OffSys Row ${i + 1}`;
+      row.layoutMode = "VERTICAL";
+      row.primaryAxisSizingMode = "AUTO";
+      row.paddingTop = 8;
+      row.paddingBottom = 8;
+      row.paddingLeft = 12;
+      row.paddingRight = 12;
+      row.itemSpacing = 3;
+      row.cornerRadius = 8;
+      row.fills = i % 2 === 0 ? [{ type: "SOLID", color: { r: 0.98, g: 0.97, b: 0.99 } }] : [];
+      sheet.appendChild(row);
+      row.layoutAlign = "STRETCH";
+      const line1 = figma.createText();
+      line1.fontName = { family: "Inter", style: "Bold" };
+      line1.characters = `#${i + 1}  [${flag.kind}] ${flag.node && !flag.node.removed ? flag.node.name : "(removed)"}`;
+      line1.fontSize = 11;
+      line1.fills = [{ type: "SOLID", color: { r: 0.12, g: 0.12, b: 0.12 } }];
+      line1.textAutoResize = "WIDTH_AND_HEIGHT";
+      row.appendChild(line1);
+      line1.layoutAlign = "STRETCH";
+      const line2 = figma.createText();
+      line2.fontName = { family: "Inter", style: "Regular" };
+      line2.characters = flag.detail;
+      line2.fontSize = 11;
+      line2.fills = [{ type: "SOLID", color: { r: 0.35, g: 0.35, b: 0.35 } }];
+      line2.textAutoResize = "WIDTH_AND_HEIGHT";
+      row.appendChild(line2);
+      line2.layoutAlign = "STRETCH";
+      const line3 = figma.createText();
+      line3.fontName = { family: "Inter", style: "Medium" };
+      line3.characters = `Fix: ${flag.recommendation}`;
+      line3.fontSize = 11;
+      line3.fills = [{ type: "SOLID", color: OFFSYS_COLOR }];
+      line3.textAutoResize = "WIDTH_AND_HEIGHT";
+      row.appendChild(line3);
+      line3.layoutAlign = "STRETCH";
+    }
+    return sheet;
   }
   async function clearAllGeneratedNodes() {
     let count = 0;
@@ -650,32 +806,44 @@
       return;
     }
     await clearAllGeneratedNodes();
-    const { issues, brandInfo } = await runAudit(params);
-    if (issues.length === 0) {
+    const { issues, brandInfo, offSystemFlags } = await runAudit(params);
+    if (issues.length === 0 && offSystemFlags.length === 0) {
       figma.notify("No issues found \u2014 aligned with Amino Design System!", { timeout: 3e3 });
       return;
     }
     const targetBounds = target.absoluteBoundingBox;
     let pinsShown = 0;
     let pinsTotal = 0;
-    if (targetBounds) {
+    if (targetBounds && issues.length > 0) {
       const pinResult = await placeCommentPins(issues, targetBounds);
       pinsShown = pinResult.shown;
       pinsTotal = pinResult.total;
     }
-    const reportTable = await createReportTable(issues, brandInfo);
-    figma.currentPage.appendChild(reportTable);
-    if (targetBounds) {
-      reportTable.x = Math.round(targetBounds.x + targetBounds.width + 280);
-      reportTable.y = Math.round(targetBounds.y);
+    const critIssues = issues.filter((i) => i.priority === "critical");
+    const warnIssues = issues.filter((i) => i.priority === "warning");
+    const infoIssues = issues.filter((i) => i.priority === "info");
+    const originalIndex = /* @__PURE__ */ new Map();
+    issues.forEach((iss, idx) => originalIndex.set(iss, idx + 1));
+    const summarySheet = await createSummarySheet(brandInfo, critIssues.length, warnIssues.length, infoIssues.length, offSystemFlags.length);
+    const critSheet = await createPrioritySheet(critIssues, "critical", originalIndex);
+    const warnSheet = await createPrioritySheet(warnIssues, "warning", originalIndex);
+    const infoSheet = await createPrioritySheet(infoIssues, "info", originalIndex);
+    const offSystemSheet = await createOffSystemSheet(offSystemFlags);
+    const sheets = [summarySheet, critSheet, warnSheet, infoSheet, offSystemSheet];
+    const baseX = targetBounds ? Math.round(targetBounds.x + targetBounds.width + 280) : 0;
+    const baseY = targetBounds ? Math.round(targetBounds.y) : 0;
+    const SHEET_GAP = 32;
+    let cursorY = baseY;
+    for (const sheet of sheets) {
+      figma.currentPage.appendChild(sheet);
+      sheet.x = baseX;
+      sheet.y = cursorY;
+      cursorY += sheet.height + SHEET_GAP;
     }
-    const critCount = issues.filter((i) => i.priority === "critical").length;
-    const warnCount = issues.filter((i) => i.priority === "warning").length;
-    const infoCount = issues.filter((i) => i.priority === "info").length;
     const pinNote = pinsShown < pinsTotal ? ` Canvas pins show ${pinsShown} of ${pinsTotal} issues (balanced across priorities) \u2014 full list in the report.` : "";
-    figma.notify(`Amino Helps: ${issues.length} issues \u2014 ${critCount} critical, ${warnCount} warning, ${infoCount} info.${pinNote}`, { timeout: 6e3 });
-    figma.currentPage.selection = [reportTable];
-    figma.viewport.scrollAndZoomIntoView([reportTable]);
+    figma.notify(`Amino Helps: ${issues.length} issues \u2014 ${critIssues.length} critical, ${warnIssues.length} warning, ${infoIssues.length} info, ${offSystemFlags.length} off-system.${pinNote}`, { timeout: 6e3 });
+    figma.currentPage.selection = [target, summarySheet];
+    figma.viewport.scrollAndZoomIntoView([target, summarySheet]);
   }
   function pushActionStates() {
     const sel = figma.currentPage.selection;
