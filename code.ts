@@ -288,9 +288,25 @@ async function runAudit(params: Params): Promise<{ issues: Issue[]; brandInfo: B
   return { issues, brandInfo }
 }
 
+// ─── Display Selection ───
+// Truncating a priority-sorted list with a flat count lets high-priority issues
+// crowd out lower ones entirely (e.g. 30+ criticals means warnings/infos never show).
+// Selecting per-priority guarantees every present priority tier is represented.
+function selectBalancedByPriority(issues: Issue[], capPerPriority: number): Issue[] {
+  const counts: Record<Priority, number> = { critical: 0, warning: 0, info: 0 }
+  const selected: Issue[] = []
+  for (const issue of issues) {
+    if (counts[issue.priority] < capPerPriority) {
+      selected.push(issue)
+      counts[issue.priority]++
+    }
+  }
+  return selected
+}
+
 // ─── Annotation Cards (both sides) ───
 
-async function placeCommentPins(issues: Issue[], targetBounds: Rect): Promise<SceneNode[]> {
+async function placeCommentPins(issues: Issue[], targetBounds: Rect): Promise<{ created: SceneNode[]; shown: number; total: number }> {
   await figma.loadFontAsync({ family: 'Inter', style: 'Bold' })
   await figma.loadFontAsync({ family: 'Inter', style: 'Medium' })
   await figma.loadFontAsync({ family: 'Inter', style: 'Regular' })
@@ -301,7 +317,11 @@ async function placeCommentPins(issues: Issue[], targetBounds: Rect): Promise<Sc
   const frameLeftX = Math.round(targetBounds.x)
   const frameRightX = Math.round(targetBounds.x + targetBounds.width)
   const frameMidX = Math.round(targetBounds.x + targetBounds.width / 2)
-  const limit = Math.min(issues.length, 30)
+  const PIN_CAP_PER_PRIORITY = 10
+  const pinIssues = selectBalancedByPriority(issues, PIN_CAP_PER_PRIORITY)
+  const originalIndex = new Map<Issue, number>()
+  issues.forEach((iss, idx) => originalIndex.set(iss, idx + 1))
+  const limit = pinIssues.length
   const occupiedLeft: { y: number; h: number }[] = []
   const occupiedRight: { y: number; h: number }[] = []
 
@@ -320,7 +340,8 @@ async function placeCommentPins(issues: Issue[], targetBounds: Rect): Promise<Sc
   }
 
   for (let i = 0; i < limit; i++) {
-    const issue = issues[i]
+    const issue = pinIssues[i]
+    const num = originalIndex.get(issue) ?? i + 1
     const node = issue.node
     if (!node || node.removed) continue
     const nodeBounds = node.absoluteBoundingBox
@@ -333,7 +354,7 @@ async function placeCommentPins(issues: Issue[], targetBounds: Rect): Promise<Sc
 
     const headerText = figma.createText()
     headerText.fontName = { family: 'Inter', style: 'Bold' }
-    headerText.characters = `#${i + 1}  ${issue.priority.toUpperCase()} — ${issue.category}`
+    headerText.characters = `#${num}  ${issue.priority.toUpperCase()} — ${issue.category}`
     headerText.fontSize = 10
     headerText.fills = [{ type: 'SOLID', color }]
     headerText.resize(TEXT_W, headerText.height)
@@ -421,7 +442,7 @@ async function placeCommentPins(issues: Issue[], targetBounds: Rect): Promise<Sc
     }
     created.push(card)
   }
-  return created
+  return { created, shown: pinIssues.length, total: issues.length }
 }
 
 // ─── Report Table ───
@@ -486,31 +507,43 @@ async function createReportTable(issues: Issue[], brandInfo: BrandInfo): Promise
   report.appendChild(divider1); divider1.layoutAlign = 'STRETCH'
 
   let currentPriority: Priority | null = null
-  const maxIssues = Math.min(issues.length, 60)
+  const REPORT_SAFETY_CAP = 500
+  const displayIssues = issues.length > REPORT_SAFETY_CAP
+    ? selectBalancedByPriority(issues, Math.ceil(REPORT_SAFETY_CAP / 3))
+    : issues
+  const originalIndex = new Map<Issue, number>()
+  issues.forEach((iss, idx) => originalIndex.set(iss, idx + 1))
+  const shownCounts: Record<Priority, number> = { critical: 0, warning: 0, info: 0 }
+  for (const issue of displayIssues) shownCounts[issue.priority]++
 
-  for (let i = 0; i < maxIssues; i++) {
-    const issue = issues[i]
+  for (let i = 0; i < displayIssues.length; i++) {
+    const issue = displayIssues[i]
+    const num = originalIndex.get(issue) ?? i + 1
     if (issue.priority !== currentPriority) {
       currentPriority = issue.priority
       if (i > 0) {
         const spacer = figma.createFrame(); spacer.name = `${TAG_PREFIX}spacer`; spacer.resize(10, 8); spacer.fills = []; report.appendChild(spacer)
       }
+      const totalForPriority = issue.priority === 'critical' ? critCount : issue.priority === 'warning' ? warnCount : infoCount
+      const shownForPriority = shownCounts[issue.priority]
       const sectionTitle = figma.createText()
       sectionTitle.fontName = { family: 'Inter', style: 'Bold' }
-      sectionTitle.characters = `${issue.priority.toUpperCase()} (${issue.priority === 'critical' ? critCount : issue.priority === 'warning' ? warnCount : infoCount})`
+      sectionTitle.characters = shownForPriority < totalForPriority
+        ? `${issue.priority.toUpperCase()} (showing ${shownForPriority} of ${totalForPriority})`
+        : `${issue.priority.toUpperCase()} (${totalForPriority})`
       sectionTitle.fontSize = 12; sectionTitle.fills = [{ type: 'SOLID', color: PRIORITY_COLORS[issue.priority] }]
       report.appendChild(sectionTitle)
     }
 
     const row = figma.createFrame()
-    row.name = `${TAG_PREFIX}Row ${i + 1}`; row.layoutMode = 'VERTICAL'; row.primaryAxisSizingMode = 'AUTO'
+    row.name = `${TAG_PREFIX}Row ${num}`; row.layoutMode = 'VERTICAL'; row.primaryAxisSizingMode = 'AUTO'
     row.paddingTop = 8; row.paddingBottom = 8; row.paddingLeft = 12; row.paddingRight = 12
     row.itemSpacing = 3; row.cornerRadius = 8
     row.fills = i % 2 === 0 ? [{ type: 'SOLID', color: { r: 0.98, g: 0.98, b: 0.99 } }] : []
     report.appendChild(row); row.layoutAlign = 'STRETCH'
 
     const line1 = figma.createText()
-    line1.fontName = { family: 'Inter', style: 'Bold' }; line1.characters = `#${i + 1}  ${issue.node.name}`
+    line1.fontName = { family: 'Inter', style: 'Bold' }; line1.characters = `#${num}  ${issue.node.name}`
     line1.fontSize = 11; line1.fills = [{ type: 'SOLID', color: { r: 0.12, g: 0.12, b: 0.12 } }]
     line1.textAutoResize = 'WIDTH_AND_HEIGHT'; row.appendChild(line1); line1.layoutAlign = 'STRETCH'
 
@@ -560,7 +593,13 @@ async function runAuditAction(params: Params): Promise<void> {
   }
 
   const targetBounds = target.absoluteBoundingBox
-  if (targetBounds) { await placeCommentPins(issues, targetBounds) }
+  let pinsShown = 0
+  let pinsTotal = 0
+  if (targetBounds) {
+    const pinResult = await placeCommentPins(issues, targetBounds)
+    pinsShown = pinResult.shown
+    pinsTotal = pinResult.total
+  }
 
   const reportTable = await createReportTable(issues, brandInfo)
   figma.currentPage.appendChild(reportTable)
@@ -572,7 +611,8 @@ async function runAuditAction(params: Params): Promise<void> {
   const critCount = issues.filter(i => i.priority === 'critical').length
   const warnCount = issues.filter(i => i.priority === 'warning').length
   const infoCount = issues.filter(i => i.priority === 'info').length
-  figma.notify(`Amino Helps: ${issues.length} issues — ${critCount} critical, ${warnCount} warning, ${infoCount} info`, { timeout: 5000 })
+  const pinNote = pinsShown < pinsTotal ? ` Canvas pins show ${pinsShown} of ${pinsTotal} issues (balanced across priorities) — full list in the report.` : ''
+  figma.notify(`Amino Helps: ${issues.length} issues — ${critCount} critical, ${warnCount} warning, ${infoCount} info.${pinNote}`, { timeout: 6000 })
   figma.currentPage.selection = [reportTable]
   figma.viewport.scrollAndZoomIntoView([reportTable])
 }

@@ -305,7 +305,19 @@
     });
     return { issues, brandInfo };
   }
+  function selectBalancedByPriority(issues, capPerPriority) {
+    const counts = { critical: 0, warning: 0, info: 0 };
+    const selected = [];
+    for (const issue of issues) {
+      if (counts[issue.priority] < capPerPriority) {
+        selected.push(issue);
+        counts[issue.priority]++;
+      }
+    }
+    return selected;
+  }
   async function placeCommentPins(issues, targetBounds) {
+    var _a;
     await figma.loadFontAsync({ family: "Inter", style: "Bold" });
     await figma.loadFontAsync({ family: "Inter", style: "Medium" });
     await figma.loadFontAsync({ family: "Inter", style: "Regular" });
@@ -316,7 +328,11 @@
     const frameLeftX = Math.round(targetBounds.x);
     const frameRightX = Math.round(targetBounds.x + targetBounds.width);
     const frameMidX = Math.round(targetBounds.x + targetBounds.width / 2);
-    const limit = Math.min(issues.length, 30);
+    const PIN_CAP_PER_PRIORITY = 10;
+    const pinIssues = selectBalancedByPriority(issues, PIN_CAP_PER_PRIORITY);
+    const originalIndex = /* @__PURE__ */ new Map();
+    issues.forEach((iss, idx) => originalIndex.set(iss, idx + 1));
+    const limit = pinIssues.length;
     const occupiedLeft = [];
     const occupiedRight = [];
     function findFreeY(desiredY, cardH, occupied) {
@@ -338,7 +354,8 @@
       return Math.round(y);
     }
     for (let i = 0; i < limit; i++) {
-      const issue = issues[i];
+      const issue = pinIssues[i];
+      const num = (_a = originalIndex.get(issue)) != null ? _a : i + 1;
       const node = issue.node;
       if (!node || node.removed)
         continue;
@@ -352,7 +369,7 @@
       const TEXT_W = CARD_W - PAD * 2;
       const headerText = figma.createText();
       headerText.fontName = { family: "Inter", style: "Bold" };
-      headerText.characters = `#${i + 1}  ${issue.priority.toUpperCase()} \u2014 ${issue.category}`;
+      headerText.characters = `#${num}  ${issue.priority.toUpperCase()} \u2014 ${issue.category}`;
       headerText.fontSize = 10;
       headerText.fills = [{ type: "SOLID", color }];
       headerText.resize(TEXT_W, headerText.height);
@@ -466,9 +483,10 @@
       }
       created.push(card);
     }
-    return created;
+    return { created, shown: pinIssues.length, total: issues.length };
   }
   async function createReportTable(issues, brandInfo) {
+    var _a;
     await figma.loadFontAsync({ family: "Inter", style: "Regular" });
     await figma.loadFontAsync({ family: "Inter", style: "Bold" });
     await figma.loadFontAsync({ family: "Inter", style: "Medium" });
@@ -538,9 +556,16 @@
     report.appendChild(divider1);
     divider1.layoutAlign = "STRETCH";
     let currentPriority = null;
-    const maxIssues = Math.min(issues.length, 60);
-    for (let i = 0; i < maxIssues; i++) {
-      const issue = issues[i];
+    const REPORT_SAFETY_CAP = 500;
+    const displayIssues = issues.length > REPORT_SAFETY_CAP ? selectBalancedByPriority(issues, Math.ceil(REPORT_SAFETY_CAP / 3)) : issues;
+    const originalIndex = /* @__PURE__ */ new Map();
+    issues.forEach((iss, idx) => originalIndex.set(iss, idx + 1));
+    const shownCounts = { critical: 0, warning: 0, info: 0 };
+    for (const issue of displayIssues)
+      shownCounts[issue.priority]++;
+    for (let i = 0; i < displayIssues.length; i++) {
+      const issue = displayIssues[i];
+      const num = (_a = originalIndex.get(issue)) != null ? _a : i + 1;
       if (issue.priority !== currentPriority) {
         currentPriority = issue.priority;
         if (i > 0) {
@@ -550,15 +575,17 @@
           spacer.fills = [];
           report.appendChild(spacer);
         }
+        const totalForPriority = issue.priority === "critical" ? critCount : issue.priority === "warning" ? warnCount : infoCount;
+        const shownForPriority = shownCounts[issue.priority];
         const sectionTitle = figma.createText();
         sectionTitle.fontName = { family: "Inter", style: "Bold" };
-        sectionTitle.characters = `${issue.priority.toUpperCase()} (${issue.priority === "critical" ? critCount : issue.priority === "warning" ? warnCount : infoCount})`;
+        sectionTitle.characters = shownForPriority < totalForPriority ? `${issue.priority.toUpperCase()} (showing ${shownForPriority} of ${totalForPriority})` : `${issue.priority.toUpperCase()} (${totalForPriority})`;
         sectionTitle.fontSize = 12;
         sectionTitle.fills = [{ type: "SOLID", color: PRIORITY_COLORS[issue.priority] }];
         report.appendChild(sectionTitle);
       }
       const row = figma.createFrame();
-      row.name = `${TAG_PREFIX}Row ${i + 1}`;
+      row.name = `${TAG_PREFIX}Row ${num}`;
       row.layoutMode = "VERTICAL";
       row.primaryAxisSizingMode = "AUTO";
       row.paddingTop = 8;
@@ -572,7 +599,7 @@
       row.layoutAlign = "STRETCH";
       const line1 = figma.createText();
       line1.fontName = { family: "Inter", style: "Bold" };
-      line1.characters = `#${i + 1}  ${issue.node.name}`;
+      line1.characters = `#${num}  ${issue.node.name}`;
       line1.fontSize = 11;
       line1.fills = [{ type: "SOLID", color: { r: 0.12, g: 0.12, b: 0.12 } }];
       line1.textAutoResize = "WIDTH_AND_HEIGHT";
@@ -629,8 +656,12 @@
       return;
     }
     const targetBounds = target.absoluteBoundingBox;
+    let pinsShown = 0;
+    let pinsTotal = 0;
     if (targetBounds) {
-      await placeCommentPins(issues, targetBounds);
+      const pinResult = await placeCommentPins(issues, targetBounds);
+      pinsShown = pinResult.shown;
+      pinsTotal = pinResult.total;
     }
     const reportTable = await createReportTable(issues, brandInfo);
     figma.currentPage.appendChild(reportTable);
@@ -641,7 +672,8 @@
     const critCount = issues.filter((i) => i.priority === "critical").length;
     const warnCount = issues.filter((i) => i.priority === "warning").length;
     const infoCount = issues.filter((i) => i.priority === "info").length;
-    figma.notify(`Amino Helps: ${issues.length} issues \u2014 ${critCount} critical, ${warnCount} warning, ${infoCount} info`, { timeout: 5e3 });
+    const pinNote = pinsShown < pinsTotal ? ` Canvas pins show ${pinsShown} of ${pinsTotal} issues (balanced across priorities) \u2014 full list in the report.` : "";
+    figma.notify(`Amino Helps: ${issues.length} issues \u2014 ${critCount} critical, ${warnCount} warning, ${infoCount} info.${pinNote}`, { timeout: 6e3 });
     figma.currentPage.selection = [reportTable];
     figma.viewport.scrollAndZoomIntoView([reportTable]);
   }
