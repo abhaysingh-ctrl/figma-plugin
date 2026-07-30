@@ -19,6 +19,7 @@
 
   // code.ts
   var TAG_PREFIX = "@@AminoHelps@@";
+  var TARGET_ID_KEY = "aminoTargetId";
   var DEFAULTS = { checkColors: true, checkText: true, checkSpacing: true, checkDetached: true, checkRadius: true };
   var latestParams = DEFAULTS;
   var isExecuting = false;
@@ -27,6 +28,16 @@
     warning: { r: 0.93, g: 0.58, b: 0.07 },
     info: { r: 0.18, g: 0.46, b: 0.88 }
   };
+  var CATEGORY_ORDER = ["Icons", "Background", "Border", "Text & Typography", "Radius", "Color"];
+  var CATEGORY_COLORS = {
+    "Icons": { r: 0.16, g: 0.5, b: 0.5 },
+    "Background": { r: 0.35, g: 0.3, b: 0.62 },
+    "Border": { r: 0.55, g: 0.4, b: 0.12 },
+    "Text & Typography": { r: 0.13, g: 0.38, b: 0.68 },
+    "Radius": { r: 0.22, g: 0.52, b: 0.28 },
+    "Color": { r: 0.4, g: 0.4, b: 0.4 }
+  };
+  var COMPONENT_COLOR = { r: 0.5, g: 0.15, b: 0.55 };
   var AMINO_RADII = [2, 4, 8, 12, 16, 24, 32, 40, 48, 64];
   async function getActiveModes(rootNode) {
     var _a;
@@ -70,24 +81,6 @@
     const lower = name.toLowerCase();
     return lower.startsWith("old tokens") || lower.includes("/old tokens/") || lower.includes("old-buttons");
   }
-  async function checkColorStyleReference(node, property, styleId) {
-    if (!styleId)
-      return null;
-    try {
-      const style = await figma.getStyleByIdAsync(styleId);
-      if (!style) {
-        return { node, kind: "Token", detail: `${property} references a style that could not be resolved (deleted/unavailable)`, recommendation: "Re-bind to a valid Amino token variable" };
-      }
-      return { node, kind: "Token", detail: `${property} uses a Figma Style, not an Amino variable: "${style.name}"`, recommendation: "Replace with the equivalent Amino Semantic colour variable" };
-    } catch (e) {
-      return null;
-    }
-  }
-  var AMINO_TEXT_STYLE_PREFIXES = ["display/", "body/", "caption/", "label/"];
-  function looksLikeAminoTextStyle(name) {
-    const lower = name.toLowerCase();
-    return AMINO_TEXT_STYLE_PREFIXES.some((p) => lower.startsWith(p));
-  }
   async function checkTokenIdentity(alias, recognizedCollectionIds) {
     const variable = await figma.variables.getVariableByIdAsync(alias.id);
     if (!variable)
@@ -96,72 +89,10 @@
     const otherSystem = recognizedCollectionIds.size > 0 && !recognizedCollectionIds.has(variable.variableCollectionId);
     return { variable, deprecated, otherSystem };
   }
-  async function scanOffSystem(node, recognizedCollectionIds) {
-    const flags = [];
-    const bound = node.boundVariables;
-    if (bound) {
-      const aliasesToCheck = [];
-      if (Array.isArray(bound.fills))
-        aliasesToCheck.push(...bound.fills.map((a) => ({ alias: a, property: "Fill" })));
-      if (Array.isArray(bound.strokes))
-        aliasesToCheck.push(...bound.strokes.map((a) => ({ alias: a, property: "Stroke" })));
-      if (bound.topLeftRadius)
-        aliasesToCheck.push({ alias: bound.topLeftRadius, property: "Corner radius" });
-      for (const { alias, property } of aliasesToCheck) {
-        if (!alias || !alias.id)
-          continue;
-        try {
-          const { variable, deprecated, otherSystem } = await checkTokenIdentity(alias, recognizedCollectionIds);
-          if (!variable)
-            continue;
-          if (deprecated) {
-            flags.push({ node, kind: "Token", detail: `${property} uses deprecated token: ${variable.name}`, recommendation: "Migrate off this Old Tokens reference to its current Amino equivalent" });
-          } else if (otherSystem) {
-            flags.push({ node, kind: "Token", detail: `${property} uses a token from an unrecognized collection: ${variable.name}`, recommendation: "Confirm this token is meant to be here \u2014 it is not part of the brand collections driving this file" });
-          }
-        } catch (e) {
-        }
-      }
-    }
-    if ("fillStyleId" in node) {
-      const fillStyleId = node.fillStyleId;
-      if (typeof fillStyleId === "string" && fillStyleId !== "") {
-        const flag = await checkColorStyleReference(node, "Fill", fillStyleId);
-        if (flag)
-          flags.push(flag);
-      }
-    }
-    if ("strokeStyleId" in node) {
-      const strokeStyleId = node.strokeStyleId;
-      if (typeof strokeStyleId === "string" && strokeStyleId !== "") {
-        const flag = await checkColorStyleReference(node, "Stroke", strokeStyleId);
-        if (flag)
-          flags.push(flag);
-      }
-    }
-    if (node.type === "TEXT" && node.textStyleId && typeof node.textStyleId === "string") {
-      try {
-        const style = await figma.getStyleByIdAsync(node.textStyleId);
-        if (!style) {
-          flags.push({ node, kind: "Token", detail: "Text style references a style that could not be resolved (deleted/unavailable)", recommendation: "Re-bind to a valid Amino type-ramp style" });
-        } else if (!looksLikeAminoTextStyle(style.name)) {
-          flags.push({ node, kind: "Token", detail: `Text style may not be from the Amino type ramp: "${style.name}"`, recommendation: "Confirm this uses an Amino Display/Body/Caption/Label style, or apply the correct one" });
-        }
-      } catch (e) {
-      }
-    }
-    if (node.type === "INSTANCE") {
-      try {
-        const main = await node.getMainComponentAsync();
-        if (!main) {
-          flags.push({ node, kind: "Component", detail: "Instance\u2019s source component could not be resolved (deleted or unavailable)", recommendation: "Re-link this instance to a valid Amino library component" });
-        } else if (main.remote === false) {
-          flags.push({ node, kind: "Component", detail: `Instance of a locally-defined component, not a library component: "${main.name}"`, recommendation: "Replace with an instance of the equivalent Amino library component" });
-        }
-      } catch (e) {
-      }
-    }
-    return flags;
+  var AMINO_TEXT_STYLE_PREFIXES = ["display/", "body/", "caption/", "label/"];
+  function looksLikeAminoTextStyle(name) {
+    const lower = name.toLowerCase();
+    return AMINO_TEXT_STYLE_PREFIXES.some((p) => lower.startsWith(p));
   }
   function detectElementRole(node) {
     if (node.type === "TEXT")
@@ -216,69 +147,71 @@
     border: "Border",
     unknown: "Element"
   };
-  async function checkTokenMapping(node) {
-    const issues = [];
-    if (!node.boundVariables)
-      return issues;
+  function categoryForColorIssue(node, isStroke) {
+    if (isStroke)
+      return "Border";
     const role = detectElementRole(node);
-    if (role === "unknown")
-      return issues;
-    const allowedTokens = ROLE_ALLOWED_TOKENS[role];
-    const roleLabel = ROLE_LABELS[role];
-    const suggested = ROLE_SUGGESTED_TOKEN[role];
-    const fillBindings = node.boundVariables.fills;
-    if (fillBindings && Array.isArray(fillBindings)) {
-      for (const alias of fillBindings) {
-        if (!alias || !alias.id)
-          continue;
-        try {
-          const variable = await figma.variables.getVariableByIdAsync(alias.id);
-          if (!variable)
-            continue;
-          const tokenCat = classifyTokenName(variable.name);
-          if (tokenCat === "unknown")
-            continue;
-          if (!allowedTokens.includes(tokenCat)) {
-            issues.push({
-              node,
-              issue: `${roleLabel} fill using ${tokenCat} token: ${variable.name}`,
-              category: "Token Mapping",
-              priority: "critical",
-              dsToken: suggested,
-              solution: `${roleLabel} should use ${allowedTokens.join("/")} token \u2192 ${suggested}`
-            });
-          }
-        } catch (e) {
+    if (role === "icon")
+      return "Icons";
+    if (role === "background")
+      return "Background";
+    if (role === "text")
+      return "Text & Typography";
+    if (role === "border")
+      return "Border";
+    return "Color";
+  }
+  async function checkBoundColorToken(node, alias, property, isStroke, recognizedCollectionIds) {
+    if (!alias || !alias.id)
+      return null;
+    const category = categoryForColorIssue(node, isStroke);
+    const { variable, deprecated, otherSystem } = await checkTokenIdentity(alias, recognizedCollectionIds);
+    if (!variable) {
+      return { node, issue: `${property} references a token that could not be resolved (deleted/unavailable)`, category, priority: "critical", dsToken: "", solution: "Re-bind to a valid Amino token" };
+    }
+    if (deprecated) {
+      return { node, issue: `${property} uses deprecated token: ${variable.name}`, category, priority: "critical", dsToken: "", solution: "Migrate off this Old Tokens reference to its current Amino equivalent" };
+    }
+    if (otherSystem) {
+      return { node, issue: `${property} uses a token from an unrecognized collection: ${variable.name}`, category, priority: "warning", dsToken: "", solution: "Confirm this token is meant to be here \u2014 it is not part of the brand collections driving this file" };
+    }
+    const role = detectElementRole(node);
+    const expectedRole = isStroke ? "border" : role;
+    const allowedTokens = ROLE_ALLOWED_TOKENS[expectedRole];
+    const roleLabel = ROLE_LABELS[expectedRole];
+    const suggested = ROLE_SUGGESTED_TOKEN[expectedRole];
+    const tokenCat = classifyTokenName(variable.name);
+    if (tokenCat !== "unknown" && !allowedTokens.includes(tokenCat)) {
+      return { node, issue: `${property} using ${tokenCat} token: ${variable.name}`, category, priority: "critical", dsToken: suggested, solution: `${roleLabel} should use ${allowedTokens.join("/")} token \u2192 ${suggested}` };
+    }
+    return null;
+  }
+  async function checkColorStyleIssue(node, property, styleId, isStroke) {
+    const category = categoryForColorIssue(node, isStroke);
+    try {
+      const style = await figma.getStyleByIdAsync(styleId);
+      if (!style) {
+        return { node, issue: `${property} references a style that could not be resolved (deleted/unavailable)`, category, priority: "critical", dsToken: "", solution: "Re-bind to a valid Amino token variable" };
+      }
+      return { node, issue: `${property} uses a Figma Style, not an Amino variable: "${style.name}"`, category, priority: "critical", dsToken: "", solution: "Replace with the equivalent Amino Semantic colour variable" };
+    } catch (e) {
+      return null;
+    }
+  }
+  async function scanComponentSourcing(node) {
+    const flags = [];
+    if (node.type === "INSTANCE") {
+      try {
+        const main = await node.getMainComponentAsync();
+        if (!main) {
+          flags.push({ node, detail: "Instance\u2019s source component could not be resolved (deleted or unavailable)", recommendation: "Re-link this instance to a valid Amino library component" });
+        } else if (main.remote === false) {
+          flags.push({ node, detail: `Instance of a locally-defined component, not a library component: "${main.name}"`, recommendation: "Replace with an instance of the equivalent Amino library component" });
         }
+      } catch (e) {
       }
     }
-    const strokeBindings = node.boundVariables.strokes;
-    if (strokeBindings && Array.isArray(strokeBindings)) {
-      for (const alias of strokeBindings) {
-        if (!alias || !alias.id)
-          continue;
-        try {
-          const variable = await figma.variables.getVariableByIdAsync(alias.id);
-          if (!variable)
-            continue;
-          const tokenCat = classifyTokenName(variable.name);
-          if (tokenCat === "unknown")
-            continue;
-          if (tokenCat !== "border") {
-            issues.push({
-              node,
-              issue: `Stroke using ${tokenCat} token: ${variable.name}`,
-              category: "Token Mapping",
-              priority: "warning",
-              dsToken: "Semantic/Borders/border-05",
-              solution: `Strokes should use border token \u2192 Semantic/Borders/border-05`
-            });
-          }
-        } catch (e) {
-        }
-      }
-    }
-    return issues;
+    return flags;
   }
   function suggestColorToken(node, isStroke) {
     if (isStroke)
@@ -334,20 +267,31 @@
     const referenceNode = roots[0];
     const brandInfo = await getActiveModes(referenceNode);
     const issues = [];
-    const offSystemFlags = [];
+    const componentFlags = [];
     for (const node of allNodes) {
-      offSystemFlags.push(...await scanOffSystem(node, brandInfo.collectionIds));
+      componentFlags.push(...await scanComponentSourcing(node));
       if (params.checkColors && "fills" in node) {
         const fills = node.fills;
         if (Array.isArray(fills)) {
-          const hasBound = node.boundVariables && node.boundVariables.fills && node.boundVariables.fills.length > 0;
-          const hasStyle = "fillStyleId" in node && node.fillStyleId && node.fillStyleId !== "";
-          if (!hasBound && !hasStyle) {
+          const boundArr = node.boundVariables && node.boundVariables.fills;
+          const fillStyleId = "fillStyleId" in node ? node.fillStyleId : "";
+          const hasStyle = typeof fillStyleId === "string" && fillStyleId !== "";
+          if (hasStyle) {
+            const found = await checkColorStyleIssue(node, "Fill", fillStyleId, false);
+            if (found)
+              issues.push(found);
+          } else if (boundArr && boundArr.length > 0) {
+            for (const alias of boundArr) {
+              const found = await checkBoundColorToken(node, alias, "Fill", false, brandInfo.collectionIds);
+              if (found)
+                issues.push(found);
+            }
+          } else {
             for (const f of fills) {
               if (f.type === "SOLID" && f.visible !== false) {
                 const hex = "#" + [f.color.r, f.color.g, f.color.b].map((c) => Math.round(c * 255).toString(16).padStart(2, "0")).join("");
                 const token = suggestColorToken(node, false);
-                issues.push({ node, issue: `Hardcoded fill: ${hex}`, category: "Color", priority: "critical", dsToken: token, solution: `Use Amino token \u2192 ${token}` });
+                issues.push({ node, issue: `Hardcoded fill: ${hex}`, category: categoryForColorIssue(node, false), priority: "critical", dsToken: token, solution: `Use Amino token \u2192 ${token}` });
               }
             }
           }
@@ -356,14 +300,25 @@
       if (params.checkColors && "strokes" in node) {
         const strokes = node.strokes;
         if (Array.isArray(strokes)) {
-          const hasBound = node.boundVariables && node.boundVariables.strokes && node.boundVariables.strokes.length > 0;
-          const hasStyle = "strokeStyleId" in node && node.strokeStyleId && node.strokeStyleId !== "";
-          if (!hasBound && !hasStyle) {
+          const boundArr = node.boundVariables && node.boundVariables.strokes;
+          const strokeStyleId = "strokeStyleId" in node ? node.strokeStyleId : "";
+          const hasStyle = typeof strokeStyleId === "string" && strokeStyleId !== "";
+          if (hasStyle) {
+            const found = await checkColorStyleIssue(node, "Stroke", strokeStyleId, true);
+            if (found)
+              issues.push(found);
+          } else if (boundArr && boundArr.length > 0) {
+            for (const alias of boundArr) {
+              const found = await checkBoundColorToken(node, alias, "Stroke", true, brandInfo.collectionIds);
+              if (found)
+                issues.push(found);
+            }
+          } else {
             for (const s of strokes) {
               if (s.type === "SOLID" && s.visible !== false) {
                 const hex = "#" + [s.color.r, s.color.g, s.color.b].map((c) => Math.round(c * 255).toString(16).padStart(2, "0")).join("");
                 const token = suggestColorToken(node, true);
-                issues.push({ node, issue: `Hardcoded stroke: ${hex}`, category: "Color", priority: "warning", dsToken: token, solution: `Use Amino token \u2192 ${token}` });
+                issues.push({ node, issue: `Hardcoded stroke: ${hex}`, category: "Border", priority: "warning", dsToken: token, solution: `Use Amino token \u2192 ${token}` });
               }
             }
           }
@@ -374,14 +329,33 @@
         if (!textNode.textStyleId || textNode.textStyleId === "") {
           const fontSize = typeof textNode.fontSize === "number" ? textNode.fontSize : 14;
           const suggested = suggestTextStyle(fontSize);
-          issues.push({ node, issue: `No text style (${fontSize}px)`, category: "Typography", priority: "critical", dsToken: suggested, solution: `Apply Amino style \u2192 ${suggested}` });
+          issues.push({ node, issue: `No text style (${fontSize}px)`, category: "Text & Typography", priority: "critical", dsToken: suggested, solution: `Apply Amino style \u2192 ${suggested}` });
+        } else if (typeof textNode.textStyleId === "string") {
+          try {
+            const style = await figma.getStyleByIdAsync(textNode.textStyleId);
+            if (!style) {
+              issues.push({ node, issue: "Text style references a style that could not be resolved (deleted/unavailable)", category: "Text & Typography", priority: "critical", dsToken: "", solution: "Re-bind to a valid Amino type-ramp style" });
+            } else if (!looksLikeAminoTextStyle(style.name)) {
+              issues.push({ node, issue: `Text style may not be from the Amino type ramp: "${style.name}"`, category: "Text & Typography", priority: "warning", dsToken: "", solution: "Confirm this uses an Amino Display/Body/Caption/Label style, or apply the correct one" });
+            }
+          } catch (e) {
+          }
         }
       }
       if (params.checkRadius && "cornerRadius" in node) {
         const n = node;
         if (typeof n.cornerRadius === "number" && n.cornerRadius > 0) {
-          const hasBound = n.boundVariables && n.boundVariables.topLeftRadius;
-          if (!hasBound && !AMINO_RADII.includes(n.cornerRadius)) {
+          const boundAlias = n.boundVariables && n.boundVariables.topLeftRadius;
+          if (boundAlias) {
+            const { variable, deprecated, otherSystem } = await checkTokenIdentity(boundAlias, brandInfo.collectionIds);
+            if (variable) {
+              if (deprecated) {
+                issues.push({ node, issue: `Corner radius uses deprecated token: ${variable.name}`, category: "Radius", priority: "critical", dsToken: "", solution: "Migrate off this Old Tokens reference" });
+              } else if (otherSystem) {
+                issues.push({ node, issue: `Corner radius uses a token from an unrecognized collection: ${variable.name}`, category: "Radius", priority: "warning", dsToken: "", solution: "Confirm this token belongs here" });
+              }
+            }
+          } else if (!AMINO_RADII.includes(n.cornerRadius)) {
             const closest = findClosestRadius(n.cornerRadius);
             issues.push({ node, issue: `Non-standard radius: ${n.cornerRadius}px`, category: "Radius", priority: "info", dsToken: `Primitive/Radius/radius-${closest}`, solution: `Use Amino token \u2192 Primitive/Radius/radius-${closest} (${closest}px)` });
           }
@@ -391,48 +365,62 @@
         const frame = node;
         const pluginData = frame.getPluginData("defn");
         if (pluginData && pluginData.includes("detached")) {
-          issues.push({ node, issue: "Detached component", category: "Component", priority: "critical", dsToken: "Original Amino component", solution: "Re-attach to original Amino library component" });
+          componentFlags.push({ node, detail: "Detached component (tagged by design tooling)", recommendation: "Re-attach to the original Amino library component" });
         }
       }
-      if (params.checkColors) {
-        const mappingIssues = await checkTokenMapping(node);
-        issues.push(...mappingIssues);
-      }
     }
-    issues.sort((a, b) => {
-      const order = { critical: 0, warning: 1, info: 2 };
-      return order[a.priority] - order[b.priority];
-    });
-    return { issues, brandInfo, offSystemFlags };
+    return { issues, brandInfo, componentFlags };
   }
-  function selectBalancedByPriority(issues, capPerPriority) {
-    const counts = { critical: 0, warning: 0, info: 0 };
-    const selected = [];
+  function buildPinItems(issues, componentFlags, issueIndex, componentIndex) {
+    var _a, _b;
+    const items = [];
     for (const issue of issues) {
-      if (counts[issue.priority] < capPerPriority) {
-        selected.push(issue);
-        counts[issue.priority]++;
+      const num = (_a = issueIndex.get(issue)) != null ? _a : 0;
+      items.push({
+        node: issue.node,
+        color: PRIORITY_COLORS[issue.priority],
+        header: `${issue.category.toUpperCase()} #${num} \u2014 ${issue.priority.toUpperCase()}`,
+        lines: [issue.issue, `Fix: ${issue.solution}`],
+        bucket: issue.category
+      });
+    }
+    for (const flag of componentFlags) {
+      const num = (_b = componentIndex.get(flag)) != null ? _b : 0;
+      items.push({
+        node: flag.node,
+        color: COMPONENT_COLOR,
+        header: `COMPONENTS #${num}`,
+        lines: [flag.detail, `Fix: ${flag.recommendation}`],
+        bucket: "Components"
+      });
+    }
+    return items;
+  }
+  function selectBalancedByBucket(items, capPerBucket) {
+    const counts = {};
+    const selected = [];
+    for (const item of items) {
+      counts[item.bucket] = counts[item.bucket] || 0;
+      if (counts[item.bucket] < capPerBucket) {
+        selected.push(item);
+        counts[item.bucket]++;
       }
     }
     return selected;
   }
-  async function placeCommentPins(issues, targetBounds) {
-    var _a;
+  async function placeCommentPins(items, targetBounds) {
     await figma.loadFontAsync({ family: "Inter", style: "Bold" });
     await figma.loadFontAsync({ family: "Inter", style: "Medium" });
     await figma.loadFontAsync({ family: "Inter", style: "Regular" });
     const created = [];
-    const CARD_W = 220;
+    const CARD_W = 240;
     const CARD_GAP = 6;
     const LINE_GAP = 24;
     const frameLeftX = Math.round(targetBounds.x);
     const frameRightX = Math.round(targetBounds.x + targetBounds.width);
     const frameMidX = Math.round(targetBounds.x + targetBounds.width / 2);
-    const PIN_CAP_PER_PRIORITY = 10;
-    const pinIssues = selectBalancedByPriority(issues, PIN_CAP_PER_PRIORITY);
-    const originalIndex = /* @__PURE__ */ new Map();
-    issues.forEach((iss, idx) => originalIndex.set(iss, idx + 1));
-    const limit = pinIssues.length;
+    const PIN_CAP_PER_BUCKET = 6;
+    const pinItems = selectBalancedByBucket(items, PIN_CAP_PER_BUCKET);
     const occupiedLeft = [];
     const occupiedRight = [];
     function findFreeY(desiredY, cardH, occupied) {
@@ -453,76 +441,65 @@
       }
       return Math.round(y);
     }
-    for (let i = 0; i < limit; i++) {
-      const issue = pinIssues[i];
-      const num = (_a = originalIndex.get(issue)) != null ? _a : i + 1;
-      const node = issue.node;
+    for (let i = 0; i < pinItems.length; i++) {
+      const item = pinItems[i];
+      const node = item.node;
       if (!node || node.removed)
         continue;
       const nodeBounds = node.absoluteBoundingBox;
       if (!nodeBounds)
         continue;
-      const color = PRIORITY_COLORS[issue.priority];
+      const color = item.color;
       const nodeMidX = Math.round(nodeBounds.x + nodeBounds.width / 2);
       const isLeft = nodeMidX < frameMidX;
       const PAD = 8;
       const TEXT_W = CARD_W - PAD * 2;
-      const headerText = figma.createText();
-      headerText.fontName = { family: "Inter", style: "Bold" };
-      headerText.characters = `#${num}  ${issue.priority.toUpperCase()} \u2014 ${issue.category}`;
-      headerText.fontSize = 10;
-      headerText.fills = [{ type: "SOLID", color }];
-      headerText.resize(TEXT_W, headerText.height);
-      headerText.textAutoResize = "HEIGHT";
-      const layerText = figma.createText();
-      layerText.fontName = { family: "Inter", style: "Medium" };
-      layerText.characters = `Layer: ${node.name.slice(0, 35)}`;
-      layerText.fontSize = 9;
-      layerText.fills = [{ type: "SOLID", color: { r: 0.5, g: 0.5, b: 0.5 } }];
-      layerText.resize(TEXT_W, layerText.height);
-      layerText.textAutoResize = "HEIGHT";
-      const issueText = figma.createText();
-      issueText.fontName = { family: "Inter", style: "Regular" };
-      issueText.characters = issue.issue || "No description";
-      issueText.fontSize = 10;
-      issueText.fills = [{ type: "SOLID", color: { r: 0.2, g: 0.2, b: 0.2 } }];
-      issueText.resize(TEXT_W, issueText.height);
-      issueText.textAutoResize = "HEIGHT";
-      const tokenText = figma.createText();
-      tokenText.fontName = { family: "Inter", style: "Medium" };
-      tokenText.characters = issue.solution || "Check Amino DS";
-      tokenText.fontSize = 9;
-      tokenText.fills = [{ type: "SOLID", color: { r: 0.1, g: 0.38, b: 0.72 } }];
-      tokenText.resize(TEXT_W, tokenText.height);
-      tokenText.textAutoResize = "HEIGHT";
       const gap = 2;
-      const totalH = PAD + headerText.height + gap + layerText.height + gap + issueText.height + gap + tokenText.height + PAD;
+      const lineSpecs = [
+        { text: item.header, style: "Bold", size: 10, color },
+        { text: `Layer: ${node.name.slice(0, 35)}`, style: "Medium", size: 9, color: { r: 0.5, g: 0.5, b: 0.5 } }
+      ];
+      item.lines.forEach((line, idx) => {
+        lineSpecs.push({
+          text: line || "No description",
+          style: idx === 0 ? "Regular" : "Medium",
+          size: idx === 0 ? 10 : 9,
+          color: idx === 0 ? { r: 0.2, g: 0.2, b: 0.2 } : { r: 0.1, g: 0.38, b: 0.72 }
+        });
+      });
+      const textNodes = [];
+      for (const spec of lineSpecs) {
+        const t = figma.createText();
+        t.fontName = { family: "Inter", style: spec.style };
+        t.characters = spec.text;
+        t.fontSize = spec.size;
+        t.fills = [{ type: "SOLID", color: spec.color }];
+        t.resize(TEXT_W, t.height);
+        t.textAutoResize = "HEIGHT";
+        textNodes.push(t);
+      }
+      let totalH = PAD;
+      for (const t of textNodes)
+        totalH += t.height + gap;
+      totalH += PAD - gap;
       const card = figma.createFrame();
-      card.name = `${TAG_PREFIX}#${i + 1}`;
+      card.name = `${TAG_PREFIX}Pin ${i + 1}`;
       card.resize(CARD_W, totalH);
-      card.cornerRadius = 6;
+      card.cornerRadius = 8;
       card.fills = [{ type: "SOLID", color: { r: 1, g: 1, b: 1 } }];
       card.strokes = [{ type: "SOLID", color }];
       card.strokeWeight = 1.5;
       card.strokeAlign = "INSIDE";
-      card.effects = [{ type: "DROP_SHADOW", color: { r: 0, g: 0, b: 0, a: 0.08 }, offset: { x: 0, y: 1 }, radius: 4, spread: 0, visible: true, blendMode: "NORMAL", boundVariables: {} }];
+      card.effects = [{ type: "DROP_SHADOW", color: { r: 0, g: 0, b: 0, a: 0.1 }, offset: { x: 0, y: 2 }, radius: 6, spread: 0, visible: true, blendMode: "NORMAL", boundVariables: {} }];
       card.clipsContent = false;
       figma.currentPage.appendChild(card);
-      card.appendChild(headerText);
-      headerText.x = PAD;
-      headerText.y = PAD;
-      let yPos = PAD + headerText.height + gap;
-      card.appendChild(layerText);
-      layerText.x = PAD;
-      layerText.y = yPos;
-      yPos += layerText.height + gap;
-      card.appendChild(issueText);
-      issueText.x = PAD;
-      issueText.y = yPos;
-      yPos += issueText.height + gap;
-      card.appendChild(tokenText);
-      tokenText.x = PAD;
-      tokenText.y = yPos;
+      let yPos = PAD;
+      for (const t of textNodes) {
+        card.appendChild(t);
+        t.x = PAD;
+        t.y = yPos;
+        yPos += t.height + gap;
+      }
       const nodeMidY = Math.round(nodeBounds.y + nodeBounds.height / 2);
       const cardH = totalH;
       const desiredY = nodeMidY - cardH / 2;
@@ -534,7 +511,7 @@
         const ncx = Math.round(nodeBounds.x), ccx = card.x + CARD_W;
         const ccy = Math.round(cardY + cardH / 2);
         const line = figma.createLine();
-        line.name = `${TAG_PREFIX}Line #${i + 1}`;
+        line.name = `${TAG_PREFIX}Line ${i + 1}`;
         line.strokeWeight = 1;
         line.strokes = [{ type: "SOLID", color, opacity: 0.6 }];
         line.dashPattern = [4, 3];
@@ -546,7 +523,7 @@
         line.rotation = -angle * (180 / Math.PI);
         created.push(line);
         const dot = figma.createEllipse();
-        dot.name = `${TAG_PREFIX}Dot #${i + 1}`;
+        dot.name = `${TAG_PREFIX}Dot ${i + 1}`;
         dot.resize(6, 6);
         dot.fills = [{ type: "SOLID", color }];
         figma.currentPage.appendChild(dot);
@@ -561,7 +538,7 @@
         const ncx = Math.round(nodeBounds.x + nodeBounds.width), ccx = card.x;
         const ccy = Math.round(cardY + cardH / 2);
         const line = figma.createLine();
-        line.name = `${TAG_PREFIX}Line #${i + 1}`;
+        line.name = `${TAG_PREFIX}Line ${i + 1}`;
         line.strokeWeight = 1;
         line.strokes = [{ type: "SOLID", color, opacity: 0.6 }];
         line.dashPattern = [4, 3];
@@ -573,7 +550,7 @@
         line.rotation = -angle * (180 / Math.PI);
         created.push(line);
         const dot = figma.createEllipse();
-        dot.name = `${TAG_PREFIX}Dot #${i + 1}`;
+        dot.name = `${TAG_PREFIX}Dot ${i + 1}`;
         dot.resize(6, 6);
         dot.fills = [{ type: "SOLID", color }];
         figma.currentPage.appendChild(dot);
@@ -583,9 +560,9 @@
       }
       created.push(card);
     }
-    return { created, shown: pinIssues.length, total: issues.length };
+    return { created, shown: pinItems.length, total: items.length };
   }
-  async function createSummarySheet(brandInfo, critCount, warnCount, infoCount, offSystemCount) {
+  async function createSummarySheet(brandInfo, critCount, warnCount, infoCount, componentCount) {
     await figma.loadFontAsync({ family: "Inter", style: "Bold" });
     await figma.loadFontAsync({ family: "Inter", style: "Regular" });
     await figma.loadFontAsync({ family: "Inter", style: "Medium" });
@@ -642,7 +619,7 @@
     }
     const summaryText = figma.createText();
     summaryText.fontName = { family: "Inter", style: "Medium" };
-    summaryText.characters = `Total: ${critCount + warnCount + infoCount} issues  |  Critical: ${critCount}  |  Warning: ${warnCount}  |  Info: ${infoCount}  |  Off-system flags: ${offSystemCount}`;
+    summaryText.characters = `Total: ${critCount + warnCount + infoCount} issues  |  Critical: ${critCount}  |  Warning: ${warnCount}  |  Info: ${infoCount}  |  Components flagged: ${componentCount}`;
     summaryText.fontSize = 13;
     summaryText.fills = [{ type: "SOLID", color: { r: 0.25, g: 0.25, b: 0.25 } }];
     summaryText.textAutoResize = "HEIGHT";
@@ -650,7 +627,7 @@
     summaryText.layoutAlign = "STRETCH";
     const note = figma.createText();
     note.fontName = { family: "Inter", style: "Regular" };
-    note.characters = "Full lists below: one sheet per priority, plus a dedicated Off-System sheet for anything not part of the Amino design system.";
+    note.characters = "Full lists below: one sheet per element type (Icons, Background, Border, Text & Typography, Radius, Color), plus a dedicated Components sheet for anything not sourced from the Amino library.";
     note.fontSize = 11;
     note.fills = [{ type: "SOLID", color: { r: 0.55, g: 0.55, b: 0.55 } }];
     note.textAutoResize = "HEIGHT";
@@ -664,16 +641,17 @@
     sheet.appendChild(footer);
     return sheet;
   }
-  async function createPrioritySheet(priorityIssues, priority, originalIndex) {
+  async function createCategorySheet(categoryIssues, category, issueIndex) {
     var _a;
     await figma.loadFontAsync({ family: "Inter", style: "Regular" });
     await figma.loadFontAsync({ family: "Inter", style: "Bold" });
     await figma.loadFontAsync({ family: "Inter", style: "Medium" });
     const SHEET_W = 700;
     const SHEET_CAP = 300;
-    const displayIssues = priorityIssues.slice(0, SHEET_CAP);
+    const displayIssues = categoryIssues.slice(0, SHEET_CAP);
+    const accent = CATEGORY_COLORS[category];
     const sheet = figma.createFrame();
-    sheet.name = `${TAG_PREFIX}${priority[0].toUpperCase()}${priority.slice(1)} Issues`;
+    sheet.name = `${TAG_PREFIX}${category}`;
     sheet.resize(SHEET_W, 1);
     sheet.layoutMode = "VERTICAL";
     sheet.primaryAxisSizingMode = "AUTO";
@@ -684,19 +662,19 @@
     sheet.itemSpacing = 10;
     sheet.fills = [{ type: "SOLID", color: { r: 1, g: 1, b: 1 } }];
     sheet.cornerRadius = 16;
-    sheet.strokes = [{ type: "SOLID", color: PRIORITY_COLORS[priority] }];
+    sheet.strokes = [{ type: "SOLID", color: accent }];
     sheet.strokeWeight = 1.5;
     sheet.clipsContent = false;
     const title = figma.createText();
     title.fontName = { family: "Inter", style: "Bold" };
-    title.characters = priorityIssues.length > SHEET_CAP ? `${priority.toUpperCase()} Issues \u2014 showing ${SHEET_CAP} of ${priorityIssues.length}` : `${priority.toUpperCase()} Issues (${priorityIssues.length})`;
+    title.characters = categoryIssues.length > SHEET_CAP ? `${category} \u2014 showing ${SHEET_CAP} of ${categoryIssues.length}` : `${category} (${categoryIssues.length})`;
     title.fontSize = 18;
-    title.fills = [{ type: "SOLID", color: PRIORITY_COLORS[priority] }];
+    title.fills = [{ type: "SOLID", color: accent }];
     sheet.appendChild(title);
     if (displayIssues.length === 0) {
       const empty = figma.createText();
       empty.fontName = { family: "Inter", style: "Regular" };
-      empty.characters = `No ${priority} issues found \u2014 clean on this check.`;
+      empty.characters = `No ${category} issues found \u2014 clean on this check.`;
       empty.fontSize = 12;
       empty.fills = [{ type: "SOLID", color: { r: 0.3, g: 0.55, b: 0.35 } }];
       sheet.appendChild(empty);
@@ -704,9 +682,9 @@
     }
     for (let i = 0; i < displayIssues.length; i++) {
       const issue = displayIssues[i];
-      const num = (_a = originalIndex.get(issue)) != null ? _a : i + 1;
+      const num = (_a = issueIndex.get(issue)) != null ? _a : i + 1;
       const row = figma.createFrame();
-      row.name = `${TAG_PREFIX}Row ${num}`;
+      row.name = `${TAG_PREFIX}Row ${category} ${num}`;
       row.layoutMode = "VERTICAL";
       row.primaryAxisSizingMode = "AUTO";
       row.paddingTop = 8;
@@ -720,15 +698,15 @@
       row.layoutAlign = "STRETCH";
       const line1 = figma.createText();
       line1.fontName = { family: "Inter", style: "Bold" };
-      line1.characters = `#${num}  ${issue.node && !issue.node.removed ? issue.node.name : "(removed)"}`;
+      line1.characters = `#${num}  [${issue.priority.toUpperCase()}]  ${issue.node && !issue.node.removed ? issue.node.name : "(removed)"}`;
       line1.fontSize = 11;
-      line1.fills = [{ type: "SOLID", color: { r: 0.12, g: 0.12, b: 0.12 } }];
+      line1.fills = [{ type: "SOLID", color: PRIORITY_COLORS[issue.priority] }];
       line1.textAutoResize = "WIDTH_AND_HEIGHT";
       row.appendChild(line1);
       line1.layoutAlign = "STRETCH";
       const line2 = figma.createText();
       line2.fontName = { family: "Inter", style: "Regular" };
-      line2.characters = `Issue: ${issue.issue}  |  Category: ${issue.category}`;
+      line2.characters = `Issue: ${issue.issue}`;
       line2.fontSize = 11;
       line2.fills = [{ type: "SOLID", color: { r: 0.35, g: 0.35, b: 0.35 } }];
       line2.textAutoResize = "WIDTH_AND_HEIGHT";
@@ -745,14 +723,14 @@
     }
     return sheet;
   }
-  async function createOffSystemSheet(flags) {
+  async function createComponentsSheet(flags, componentIndex) {
+    var _a;
     await figma.loadFontAsync({ family: "Inter", style: "Regular" });
     await figma.loadFontAsync({ family: "Inter", style: "Bold" });
     await figma.loadFontAsync({ family: "Inter", style: "Medium" });
     const SHEET_W = 700;
-    const OFFSYS_COLOR = { r: 0.5, g: 0.15, b: 0.55 };
     const sheet = figma.createFrame();
-    sheet.name = `${TAG_PREFIX}Off-System Flags`;
+    sheet.name = `${TAG_PREFIX}Components`;
     sheet.resize(SHEET_W, 1);
     sheet.layoutMode = "VERTICAL";
     sheet.primaryAxisSizingMode = "AUTO";
@@ -763,18 +741,18 @@
     sheet.itemSpacing = 10;
     sheet.fills = [{ type: "SOLID", color: { r: 1, g: 1, b: 1 } }];
     sheet.cornerRadius = 16;
-    sheet.strokes = [{ type: "SOLID", color: OFFSYS_COLOR }];
+    sheet.strokes = [{ type: "SOLID", color: COMPONENT_COLOR }];
     sheet.strokeWeight = 1.5;
     sheet.clipsContent = false;
     const title = figma.createText();
     title.fontName = { family: "Inter", style: "Bold" };
-    title.characters = `Off-System Flags (${flags.length})`;
+    title.characters = `Components (${flags.length})`;
     title.fontSize = 18;
-    title.fills = [{ type: "SOLID", color: OFFSYS_COLOR }];
+    title.fills = [{ type: "SOLID", color: COMPONENT_COLOR }];
     sheet.appendChild(title);
     const subtitle = figma.createText();
     subtitle.fontName = { family: "Inter", style: "Regular" };
-    subtitle.characters = "Components not sourced from the Amino library, and elements bound to deprecated or unrecognized (non-Amino) tokens.";
+    subtitle.characters = "Component instances not sourced from the Amino library \u2014 local, broken/unresolvable, or detached.";
     subtitle.fontSize = 11;
     subtitle.fills = [{ type: "SOLID", color: { r: 0.4, g: 0.4, b: 0.4 } }];
     subtitle.textAutoResize = "HEIGHT";
@@ -783,7 +761,7 @@
     if (flags.length === 0) {
       const empty = figma.createText();
       empty.fontName = { family: "Inter", style: "Regular" };
-      empty.characters = "No off-system components or tokens found.";
+      empty.characters = "No off-system components found.";
       empty.fontSize = 12;
       empty.fills = [{ type: "SOLID", color: { r: 0.3, g: 0.55, b: 0.35 } }];
       sheet.appendChild(empty);
@@ -791,8 +769,9 @@
     }
     for (let i = 0; i < flags.length; i++) {
       const flag = flags[i];
+      const num = (_a = componentIndex.get(flag)) != null ? _a : i + 1;
       const row = figma.createFrame();
-      row.name = `${TAG_PREFIX}OffSys Row ${i + 1}`;
+      row.name = `${TAG_PREFIX}Row Components ${num}`;
       row.layoutMode = "VERTICAL";
       row.primaryAxisSizingMode = "AUTO";
       row.paddingTop = 8;
@@ -806,7 +785,7 @@
       row.layoutAlign = "STRETCH";
       const line1 = figma.createText();
       line1.fontName = { family: "Inter", style: "Bold" };
-      line1.characters = `#${i + 1}  [${flag.kind}] ${flag.node && !flag.node.removed ? flag.node.name : "(removed)"}`;
+      line1.characters = `#${num}  ${flag.node && !flag.node.removed ? flag.node.name : "(removed)"}`;
       line1.fontSize = 11;
       line1.fills = [{ type: "SOLID", color: { r: 0.12, g: 0.12, b: 0.12 } }];
       line1.textAutoResize = "WIDTH_AND_HEIGHT";
@@ -824,7 +803,7 @@
       line3.fontName = { family: "Inter", style: "Medium" };
       line3.characters = `Fix: ${flag.recommendation}`;
       line3.fontSize = 11;
-      line3.fills = [{ type: "SOLID", color: OFFSYS_COLOR }];
+      line3.fills = [{ type: "SOLID", color: COMPONENT_COLOR }];
       line3.textAutoResize = "WIDTH_AND_HEIGHT";
       row.appendChild(line3);
       line3.layoutAlign = "STRETCH";
@@ -844,37 +823,64 @@
       node.remove();
     return count;
   }
+  async function clearGeneratedNodesForTarget(targetId) {
+    let count = 0;
+    const toRemove = [];
+    for (const child of figma.currentPage.children) {
+      if (child.name.startsWith(TAG_PREFIX) && child.getPluginData(TARGET_ID_KEY) === targetId) {
+        toRemove.push(child);
+        count++;
+      }
+    }
+    for (const node of toRemove)
+      node.remove();
+    return count;
+  }
   async function runAuditAction(params) {
     const target = figma.currentPage.selection.length > 0 ? figma.currentPage.selection[0] : null;
     if (!target) {
       figma.notify("Select a frame to audit", { timeout: 3e3 });
       return;
     }
-    await clearAllGeneratedNodes();
-    const { issues, brandInfo, offSystemFlags } = await runAudit(params);
-    if (issues.length === 0 && offSystemFlags.length === 0) {
+    await clearGeneratedNodesForTarget(target.id);
+    const { issues, brandInfo, componentFlags } = await runAudit(params);
+    if (issues.length === 0 && componentFlags.length === 0) {
       figma.notify("No issues found \u2014 aligned with Amino Design System!", { timeout: 3e3 });
       return;
     }
+    const critCount = issues.filter((i) => i.priority === "critical").length;
+    const warnCount = issues.filter((i) => i.priority === "warning").length;
+    const infoCount = issues.filter((i) => i.priority === "info").length;
+    const order = { critical: 0, warning: 1, info: 2 };
+    const byCategory = new Map(CATEGORY_ORDER.map((c) => [c, []]));
+    for (const issue of issues)
+      byCategory.get(issue.category).push(issue);
+    const issueIndex = /* @__PURE__ */ new Map();
+    for (const category of CATEGORY_ORDER) {
+      const sorted = [...byCategory.get(category)].sort((a, b) => order[a.priority] - order[b.priority]);
+      sorted.forEach((issue, idx) => issueIndex.set(issue, idx + 1));
+      byCategory.set(category, sorted);
+    }
+    const componentIndex = /* @__PURE__ */ new Map();
+    componentFlags.forEach((flag, idx) => componentIndex.set(flag, idx + 1));
+    const pinItems = buildPinItems(issues, componentFlags, issueIndex, componentIndex);
     const targetBounds = target.absoluteBoundingBox;
     let pinsShown = 0;
     let pinsTotal = 0;
-    if (targetBounds && issues.length > 0) {
-      const pinResult = await placeCommentPins(issues, targetBounds);
+    const generatedNodes = [];
+    if (targetBounds && pinItems.length > 0) {
+      const pinResult = await placeCommentPins(pinItems, targetBounds);
       pinsShown = pinResult.shown;
       pinsTotal = pinResult.total;
+      generatedNodes.push(...pinResult.created);
     }
-    const critIssues = issues.filter((i) => i.priority === "critical");
-    const warnIssues = issues.filter((i) => i.priority === "warning");
-    const infoIssues = issues.filter((i) => i.priority === "info");
-    const originalIndex = /* @__PURE__ */ new Map();
-    issues.forEach((iss, idx) => originalIndex.set(iss, idx + 1));
-    const summarySheet = await createSummarySheet(brandInfo, critIssues.length, warnIssues.length, infoIssues.length, offSystemFlags.length);
-    const critSheet = await createPrioritySheet(critIssues, "critical", originalIndex);
-    const warnSheet = await createPrioritySheet(warnIssues, "warning", originalIndex);
-    const infoSheet = await createPrioritySheet(infoIssues, "info", originalIndex);
-    const offSystemSheet = await createOffSystemSheet(offSystemFlags);
-    const sheets = [summarySheet, critSheet, warnSheet, infoSheet, offSystemSheet];
+    const summarySheet = await createSummarySheet(brandInfo, critCount, warnCount, infoCount, componentFlags.length);
+    const categorySheets = [];
+    for (const category of CATEGORY_ORDER) {
+      categorySheets.push(await createCategorySheet(byCategory.get(category), category, issueIndex));
+    }
+    const componentsSheet = await createComponentsSheet(componentFlags, componentIndex);
+    const sheets = [summarySheet, ...categorySheets, componentsSheet];
     const baseX = targetBounds ? Math.round(targetBounds.x + targetBounds.width + 280) : 0;
     const baseY = targetBounds ? Math.round(targetBounds.y) : 0;
     const SHEET_GAP = 32;
@@ -884,9 +890,12 @@
       sheet.x = baseX;
       sheet.y = cursorY;
       cursorY += sheet.height + SHEET_GAP;
+      generatedNodes.push(sheet);
     }
-    const pinNote = pinsShown < pinsTotal ? ` Canvas pins show ${pinsShown} of ${pinsTotal} issues (balanced across priorities) \u2014 full list in the report.` : "";
-    figma.notify(`Amino Helps: ${issues.length} issues \u2014 ${critIssues.length} critical, ${warnIssues.length} warning, ${infoIssues.length} info, ${offSystemFlags.length} off-system.${pinNote}`, { timeout: 6e3 });
+    for (const node of generatedNodes)
+      node.setPluginData(TARGET_ID_KEY, target.id);
+    const pinNote = pinsShown < pinsTotal ? ` Canvas pins show ${pinsShown} of ${pinsTotal} (balanced across categories) \u2014 full lists in the sheets.` : "";
+    figma.notify(`Amino Helps: ${issues.length} issues (${critCount} critical, ${warnCount} warning, ${infoCount} info) + ${componentFlags.length} components flagged.${pinNote}`, { timeout: 6e3 });
     figma.currentPage.selection = [target, summarySheet];
     figma.viewport.scrollAndZoomIntoView([target, summarySheet]);
   }
