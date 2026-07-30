@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: Inter, system-ui, sans-serif; font-size: 12px; color: #1e1e1e; padding: 16px; background: #fff; }
+  .header { font-size: 16px; font-weight: 700; margin-bottom: 4px; }
+  .subtitle { font-size: 11px; color: #888; margin-bottom: 16px; }
+  .legend { display: flex; gap: 12px; margin: 4px 0 16px; }
+  .legend-item { display: flex; align-items: center; gap: 4px; font-size: 10px; color: #555; }
+  .legend-dot { width: 8px; height: 8px; border-radius: 50%; }
+  .dot-critical { background: #e02b2b; }
+  .dot-warning { background: #ed940f; }
+  .dot-info { background: #2e75e0; }
+  .empty-state { background: #f4f6fb; border-radius: 12px; padding: 20px 16px 16px; margin-bottom: 16px; text-align: center; }
+  .empty-state svg { display: block; margin: 0 auto 12px; }
+  .empty-state p { font-size: 11px; color: #555; line-height: 1.4; margin-bottom: 4px; }
+  .empty-state p:last-child { margin-bottom: 0; }
+  .btn { width: 100%; padding: 10px; border: none; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; margin-bottom: 8px; transition: opacity 0.15s; }
+  .btn:disabled { opacity: 0.4; cursor: default; }
+  .btn-primary { background: #0d6efd; color: #fff; }
+  .btn-primary:hover:not(:disabled) { background: #0b5ed7; }
+  .btn-outline { background: transparent; border: 1.5px solid #ddd; color: #555; }
+  .btn-outline:hover:not(:disabled) { border-color: #bbb; color: #333; }
+</style>
+</head>
+<body>
+  <div class="header">Amino Helps</div>
+  <div class="subtitle">Design System Audit Tool</div>
+
+  <div class="legend">
+    <span class="legend-item"><span class="legend-dot dot-critical"></span>Critical</span>
+    <span class="legend-item"><span class="legend-dot dot-warning"></span>Warning</span>
+    <span class="legend-item"><span class="legend-dot dot-info"></span>Info</span>
+  </div>
+
+  <div class="empty-state">
+    <svg width="120" height="90" viewBox="0 0 120 90" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="14" y="10" width="92" height="62" rx="6" fill="#eef2fb" stroke="#c9d6f5" stroke-width="1.5"/>
+      <rect x="24" y="22" width="46" height="6" rx="3" fill="#c9d6f5"/>
+      <rect x="24" y="34" width="72" height="6" rx="3" fill="#dbe4fa"/>
+      <rect x="24" y="46" width="34" height="6" rx="3" fill="#dbe4fa"/>
+      <rect x="10" y="6" width="8" height="8" rx="1.5" fill="#fff" stroke="#0d6efd" stroke-width="1.5"/>
+      <rect x="102" y="6" width="8" height="8" rx="1.5" fill="#fff" stroke="#0d6efd" stroke-width="1.5"/>
+      <rect x="10" y="68" width="8" height="8" rx="1.5" fill="#fff" stroke="#0d6efd" stroke-width="1.5"/>
+      <rect x="102" y="68" width="8" height="8" rx="1.5" fill="#fff" stroke="#0d6efd" stroke-width="1.5"/>
+      <path d="M78 58 L96 84 L88 82 L92 92 L86 94 L82 84 L76 90 Z" fill="#0d6efd"/>
+    </svg>
+    <p><strong>Select a frame</strong> to audit against Amino DS.</p>
+    <p>Pins and a full report will appear alongside it.</p>
+  </div>
+
+  <button class="btn btn-primary" id="btnAudit" disabled>Select a frame</button>
+  <button class="btn btn-outline" id="btnClear">Clear all</button>
+
+  <script>
+    const btnAudit = document.getElementById('btnAudit');
+    const btnClear = document.getElementById('btnClear');
+
+    btnAudit.onclick = () => {
+      if (!btnAudit.disabled) parent.postMessage({ pluginMessage: { type: 'action', id: 'audit' } }, '*');
+    };
+    btnClear.onclick = () => parent.postMessage({ pluginMessage: { type: 'action', id: 'clear' } }, '*');
+
+    window.onmessage = (ev) => {
+      const msg = ev.data?.pluginMessage;
+      if (!msg) return;
+      if (msg.type === 'action-state') {
+        const { audit, clear } = msg.actions;
+        if (audit) { btnAudit.disabled = !audit.enabled; btnAudit.textContent = audit.label; }
+        if (clear) { btnClear.disabled = !clear.enabled; btnClear.textContent = clear.label; }
+      }
+    };
+
+    function reportSize() {
+      const height = Math.ceil(btnClear.getBoundingClientRect().bottom + 16);
+      parent.postMessage({ pluginMessage: { type: 'resize', height } }, '*');
+    }
+    new ResizeObserver(reportSize).observe(document.body);
+    requestAnimationFrame(reportSize);
+  </script>
+</body>
+</html>
