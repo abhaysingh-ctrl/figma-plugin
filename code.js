@@ -70,6 +70,24 @@
     const lower = name.toLowerCase();
     return lower.startsWith("old tokens") || lower.includes("/old tokens/") || lower.includes("old-buttons");
   }
+  async function checkColorStyleReference(node, property, styleId) {
+    if (!styleId)
+      return null;
+    try {
+      const style = await figma.getStyleByIdAsync(styleId);
+      if (!style) {
+        return { node, kind: "Token", detail: `${property} references a style that could not be resolved (deleted/unavailable)`, recommendation: "Re-bind to a valid Amino token variable" };
+      }
+      return { node, kind: "Token", detail: `${property} uses a Figma Style, not an Amino variable: "${style.name}"`, recommendation: "Replace with the equivalent Amino Semantic colour variable" };
+    } catch (e) {
+      return null;
+    }
+  }
+  var AMINO_TEXT_STYLE_PREFIXES = ["display/", "body/", "caption/", "label/"];
+  function looksLikeAminoTextStyle(name) {
+    const lower = name.toLowerCase();
+    return AMINO_TEXT_STYLE_PREFIXES.some((p) => lower.startsWith(p));
+  }
   async function checkTokenIdentity(alias, recognizedCollectionIds) {
     const variable = await figma.variables.getVariableByIdAsync(alias.id);
     if (!variable)
@@ -103,6 +121,33 @@
           }
         } catch (e) {
         }
+      }
+    }
+    if ("fillStyleId" in node) {
+      const fillStyleId = node.fillStyleId;
+      if (typeof fillStyleId === "string" && fillStyleId !== "") {
+        const flag = await checkColorStyleReference(node, "Fill", fillStyleId);
+        if (flag)
+          flags.push(flag);
+      }
+    }
+    if ("strokeStyleId" in node) {
+      const strokeStyleId = node.strokeStyleId;
+      if (typeof strokeStyleId === "string" && strokeStyleId !== "") {
+        const flag = await checkColorStyleReference(node, "Stroke", strokeStyleId);
+        if (flag)
+          flags.push(flag);
+      }
+    }
+    if (node.type === "TEXT" && node.textStyleId && typeof node.textStyleId === "string") {
+      try {
+        const style = await figma.getStyleByIdAsync(node.textStyleId);
+        if (!style) {
+          flags.push({ node, kind: "Token", detail: "Text style references a style that could not be resolved (deleted/unavailable)", recommendation: "Re-bind to a valid Amino type-ramp style" });
+        } else if (!looksLikeAminoTextStyle(style.name)) {
+          flags.push({ node, kind: "Token", detail: `Text style may not be from the Amino type ramp: "${style.name}"`, recommendation: "Confirm this uses an Amino Display/Body/Caption/Label style, or apply the correct one" });
+        }
+      } catch (e) {
       }
     }
     if (node.type === "INSTANCE") {

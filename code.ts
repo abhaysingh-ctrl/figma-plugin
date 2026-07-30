@@ -77,6 +77,33 @@ function isDeprecatedTokenName(name: string): boolean {
   return lower.startsWith('old tokens') || lower.includes('/old tokens/') || lower.includes('old-buttons')
 }
 
+// Amino's colour system is Variable-based (Semantic/Text/text-01, etc.) —
+// a fill/stroke bound to a Figma Style instead (e.g. "Color Styles/Gray/#800")
+// is a parallel, non-Amino mechanism and was previously invisible: the
+// hardcoded-fill check only flags bare literals, and "has a style" was
+// treated as automatically compliant. It isn't — it's just not hardcoded.
+async function checkColorStyleReference(node: SceneNode, property: string, styleId: string): Promise<OffSystemFlag | null> {
+  if (!styleId) return null
+  try {
+    const style = await figma.getStyleByIdAsync(styleId)
+    if (!style) {
+      return { node, kind: 'Token', detail: `${property} references a style that could not be resolved (deleted/unavailable)`, recommendation: 'Re-bind to a valid Amino token variable' }
+    }
+    return { node, kind: 'Token', detail: `${property} uses a Figma Style, not an Amino variable: "${style.name}"`, recommendation: 'Replace with the equivalent Amino Semantic colour variable' }
+  } catch {
+    return null
+  }
+}
+
+// Typography in Figma is correctly done via Text Styles (not Variables), so
+// a bound text style isn't automatically wrong the way a bound colour style
+// is — but it should still look like it came from Amino's type ramp.
+const AMINO_TEXT_STYLE_PREFIXES = ['display/', 'body/', 'caption/', 'label/']
+function looksLikeAminoTextStyle(name: string): boolean {
+  const lower = name.toLowerCase()
+  return AMINO_TEXT_STYLE_PREFIXES.some(p => lower.startsWith(p))
+}
+
 async function checkTokenIdentity(alias: VariableAlias, recognizedCollectionIds: Set<string>): Promise<{ variable: Variable | null; deprecated: boolean; otherSystem: boolean }> {
   const variable = await figma.variables.getVariableByIdAsync(alias.id)
   if (!variable) return { variable: null, deprecated: false, otherSystem: false }
@@ -105,6 +132,30 @@ async function scanOffSystem(node: SceneNode, recognizedCollectionIds: Set<strin
         }
       } catch { /* skip */ }
     }
+  }
+  if ('fillStyleId' in node) {
+    const fillStyleId = (node as MinimalFillsMixin).fillStyleId
+    if (typeof fillStyleId === 'string' && fillStyleId !== '') {
+      const flag = await checkColorStyleReference(node, 'Fill', fillStyleId)
+      if (flag) flags.push(flag)
+    }
+  }
+  if ('strokeStyleId' in node) {
+    const strokeStyleId = (node as MinimalStrokesMixin).strokeStyleId
+    if (typeof strokeStyleId === 'string' && strokeStyleId !== '') {
+      const flag = await checkColorStyleReference(node, 'Stroke', strokeStyleId)
+      if (flag) flags.push(flag)
+    }
+  }
+  if (node.type === 'TEXT' && node.textStyleId && typeof node.textStyleId === 'string') {
+    try {
+      const style = await figma.getStyleByIdAsync(node.textStyleId)
+      if (!style) {
+        flags.push({ node, kind: 'Token', detail: 'Text style references a style that could not be resolved (deleted/unavailable)', recommendation: 'Re-bind to a valid Amino type-ramp style' })
+      } else if (!looksLikeAminoTextStyle(style.name)) {
+        flags.push({ node, kind: 'Token', detail: `Text style may not be from the Amino type ramp: "${style.name}"`, recommendation: 'Confirm this uses an Amino Display/Body/Caption/Label style, or apply the correct one' })
+      }
+    } catch { /* skip */ }
   }
   if (node.type === 'INSTANCE') {
     try {
