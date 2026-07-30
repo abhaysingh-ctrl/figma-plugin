@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: Inter, system-ui, sans-serif; font-size: 12px; color: #1e1e1e; padding: 16px; background: #fff; }
+  .header { font-size: 16px; font-weight: 700; margin-bottom: 4px; }
+  .subtitle { font-size: 11px; color: #888; margin-bottom: 16px; }
+  .section-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #666; margin-bottom: 8px; }
+  .toggle-row { display: flex; align-items: center; justify-content: space-between; padding: 6px 0; }
+  .toggle-label { font-size: 12px; color: #333; }
+  .toggle { position: relative; width: 36px; height: 20px; cursor: pointer; }
+  .toggle input { display: none; }
+  .toggle .slider { position: absolute; inset: 0; background: #ccc; border-radius: 10px; transition: background 0.2s; }
+  .toggle .slider::before { content: ''; position: absolute; width: 16px; height: 16px; left: 2px; bottom: 2px; background: #fff; border-radius: 50%; transition: transform 0.2s; }
+  .toggle input:checked + .slider { background: #0d6efd; }
+  .toggle input:checked + .slider::before { transform: translateX(16px); }
+  .legend { display: flex; gap: 12px; margin: 14px 0; }
+  .legend-item { display: flex; align-items: center; gap: 4px; font-size: 10px; color: #555; }
+  .legend-dot { width: 8px; height: 8px; border-radius: 50%; }
+  .dot-critical { background: #e02b2b; }
+  .dot-warning { background: #ed940f; }
+  .dot-info { background: #2e75e0; }
+  .info-box { background: #f4f6fb; border-radius: 8px; padding: 10px 12px; margin-bottom: 16px; }
+  .info-box p { font-size: 11px; color: #555; line-height: 1.4; margin-bottom: 4px; }
+  .info-box p:last-child { margin-bottom: 0; }
+  .btn { width: 100%; padding: 10px; border: none; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; margin-bottom: 8px; transition: opacity 0.15s; }
+  .btn:disabled { opacity: 0.4; cursor: default; }
+  .btn-primary { background: #0d6efd; color: #fff; }
+  .btn-primary:hover:not(:disabled) { background: #0b5ed7; }
+  .btn-outline { background: transparent; border: 1.5px solid #ddd; color: #555; }
+  .btn-outline:hover:not(:disabled) { border-color: #bbb; color: #333; }
+</style>
+</head>
+<body>
+  <div class="header">Amino Helps</div>
+  <div class="subtitle">Design System Audit Tool</div>
+
+  <div class="section-title">Checks</div>
+  <div class="toggle-row"><span class="toggle-label">Color tokens</span><label class="toggle"><input type="checkbox" id="checkColors" checked><span class="slider"></span></label></div>
+  <div class="toggle-row"><span class="toggle-label">Text styles</span><label class="toggle"><input type="checkbox" id="checkText" checked><span class="slider"></span></label></div>
+  <div class="toggle-row"><span class="toggle-label">Spacing</span><label class="toggle"><input type="checkbox" id="checkSpacing" checked><span class="slider"></span></label></div>
+  <div class="toggle-row"><span class="toggle-label">Detached instances</span><label class="toggle"><input type="checkbox" id="checkDetached" checked><span class="slider"></span></label></div>
+  <div class="toggle-row"><span class="toggle-label">Corner radius</span><label class="toggle"><input type="checkbox" id="checkRadius" checked><span class="slider"></span></label></div>
+
+  <div class="legend">
+    <span class="legend-item"><span class="legend-dot dot-critical"></span>Critical</span>
+    <span class="legend-item"><span class="legend-dot dot-warning"></span>Warning</span>
+    <span class="legend-item"><span class="legend-dot dot-info"></span>Info</span>
+  </div>
+
+  <div class="info-box">
+    <p><strong>Select a frame</strong> to audit against Amino DS.</p>
+    <p>Cards will appear on both sides of your frame, with an audit report alongside.</p>
+  </div>
+
+  <button class="btn btn-primary" id="btnAudit" disabled>Select a frame</button>
+  <button class="btn btn-outline" id="btnClear">Clear all</button>
+
+  <script>
+    const btnAudit = document.getElementById('btnAudit');
+    const btnClear = document.getElementById('btnClear');
+
+    function getParams() {
+      return {
+        checkColors: document.getElementById('checkColors').checked,
+        checkText: document.getElementById('checkText').checked,
+        checkSpacing: document.getElementById('checkSpacing').checked,
+        checkDetached: document.getElementById('checkDetached').checked,
+        checkRadius: document.getElementById('checkRadius').checked,
+      };
+    }
+
+    btnAudit.onclick = () => {
+      if (!btnAudit.disabled) parent.postMessage({ pluginMessage: { type: 'action', id: 'audit', params: getParams() } }, '*');
+    };
+    btnClear.onclick = () => parent.postMessage({ pluginMessage: { type: 'action', id: 'clear' } }, '*');
+
+    window.onmessage = (ev) => {
+      const msg = ev.data?.pluginMessage;
+      if (!msg) return;
+      if (msg.type === 'action-state') {
+        const { audit, clear } = msg.actions;
+        if (audit) { btnAudit.disabled = !audit.enabled; btnAudit.textContent = audit.label; }
+        if (clear) { btnClear.disabled = !clear.enabled; btnClear.textContent = clear.label; }
+      }
+    };
+
+    new ResizeObserver(() => {
+      parent.postMessage({ pluginMessage: { type: 'resize', height: document.body.scrollHeight + 32 } }, '*');
+    }).observe(document.body);
+  </script>
+</body>
+</html>

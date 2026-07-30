@@ -1,0 +1,14 @@
+{
+  "name": "amino-helps",
+  "version": "1.0.0",
+  "description": "Amino Design System audit plugin for Figma",
+  "scripts": {
+    "build": "esbuild code.ts --bundle --outfile=code.js --target=es2017",
+    "watch": "esbuild code.ts --bundle --outfile=code.js --target=es2017 --watch"
+  },
+  "devDependencies": {
+    "@figma/plugin-typings": "^1.100.0",
+    "esbuild": "^0.20.0",
+    "typescript": "^5.4.0"
+  }
+}
