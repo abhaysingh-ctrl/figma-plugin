@@ -1,0 +1,21 @@
+{
+  "name": "ux-audit",
+  "id": "1664933711879711626",
+  "api": "1.0.0",
+  "main": "code.js",
+  "ui": {
+    "ui": "ui.html"
+  },
+  "capabilities": [],
+  "enableProposedApi": false,
+  "enablePrivatePluginApi": true,
+  "documentAccess": "dynamic-page",
+  "editorType": [
+    "figma"
+  ],
+  "networkAccess": {
+    "allowedDomains": [
+      "none"
+    ]
+  }
+}
