@@ -1,18 +1,21 @@
-// UX Amino — hands the selected Figma frame off to Claude Code's
-// `ux-design-audit` skill.
+// UX Amino — runs the `ux-design-audit` rubric on the selected Figma frame
+// automatically via a backend service (see ux-amino-backend/), and falls
+// back to copying a Claude Code hand-off prompt if that call can't be made.
 //
-// That skill needs LLM judgment + live web search to cite real sources
-// (NN/g, Baymard, Growth.Design, WCAG), so it can't run inside the Figma
-// sandbox. This plugin's only job is to build the correct shareable frame
-// link and the exact prompt sentence the skill expects, so the hand-off is
-// one click instead of "copy link to selection" + typing.
+// The skill needs LLM judgment + live web search to cite real sources (NN/g,
+// Baymard, Growth.Design, WCAG), which can't run inside the Figma sandbox —
+// the backend replicates it via the raw Anthropic API instead.
 
-const UI_WIDTH = 320
-const UI_INITIAL_HEIGHT = 420
+const UI_WIDTH = 360
+const UI_INITIAL_HEIGHT = 460
 const UI_MIN_HEIGHT = 200
-const UI_MAX_HEIGHT = 600
+const UI_MAX_HEIGHT = 720
 
 const PROMPT_PREFIX = 'Run a ux-design-audit on this Figma frame: '
+
+// Must match manifest.json's networkAccess.allowedDomains and the deployed
+// ux-amino-backend/ domain. Update all three together after deploying.
+const BACKEND_URL = 'https://ux-amino-backend.vercel.app/api/audit'
 
 type StateKind = 'empty' | 'multi' | 'no-file-key' | 'ready'
 
@@ -21,8 +24,11 @@ interface StateMessage {
   kind: StateKind
   title: string
   body: string
-  /** Full text the primary button copies. '' when there's nothing to copy. */
+  /** Frame share URL the backend audits. '' when there's nothing to audit. */
+  frameUrl: string
+  /** Manual Claude Code hand-off text, for the fallback path. */
   prompt: string
+  backendUrl: string
   primary: { enabled: boolean; label: string }
   /** Shown only in the no-file-key state, as a fallback. */
   secondary: { visible: boolean; label: string }
@@ -69,10 +75,12 @@ function computeState(): StateMessage {
       type: 'state',
       kind: 'empty',
       title: 'Select a frame',
-      body: 'Click one frame, component, or group on the canvas to build its audit prompt.',
+      body: 'Click one frame, component, or group on the canvas to run its UX audit.',
+      frameUrl: '',
       prompt: '',
+      backendUrl: BACKEND_URL,
       primary: { enabled: false, label: 'Select a frame' },
-      secondary: { visible: false, label: 'Copy prompt text only' },
+      secondary: { visible: false, label: 'Copy prompt for Claude Code instead' },
     }
   }
 
@@ -82,9 +90,11 @@ function computeState(): StateMessage {
       kind: 'multi',
       title: selection.length + ' layers selected',
       body: 'A UX audit runs on one screen at a time. Deselect until exactly one frame is selected.',
+      frameUrl: '',
       prompt: '',
+      backendUrl: BACKEND_URL,
       primary: { enabled: false, label: 'Select just one frame' },
-      secondary: { visible: false, label: 'Copy prompt text only' },
+      secondary: { visible: false, label: 'Copy prompt for Claude Code instead' },
     }
   }
 
@@ -96,8 +106,10 @@ function computeState(): StateMessage {
       type: 'state',
       kind: 'no-file-key',
       title: 'No shareable link for this file',
-      body: 'Figma only exposes this file key to dev-mode and org-private plugins. Copy the prompt text below, then right-click the frame, choose "Copy link to selection", and paste the link at the end.',
+      body: 'Figma only exposes this file key to dev-mode and org-private plugins, so the automated audit and the manual hand-off both need it. Right-click the frame, choose "Copy link to selection", and paste the ux-design-audit prompt yourself in Claude Code.',
+      frameUrl: '',
       prompt: PROMPT_PREFIX,
+      backendUrl: BACKEND_URL,
       primary: { enabled: false, label: 'Link unavailable' },
       secondary: { visible: true, label: 'Copy prompt text only' },
     }
@@ -109,9 +121,11 @@ function computeState(): StateMessage {
     kind: 'ready',
     title: node.name,
     body: node.type.toLowerCase().replace(/_/g, ' ') + ' · node ' + toUrlNodeId(node.id),
+    frameUrl: url,
     prompt: PROMPT_PREFIX + url,
-    primary: { enabled: true, label: 'Copy Audit Prompt' },
-    secondary: { visible: false, label: 'Copy prompt text only' },
+    backendUrl: BACKEND_URL,
+    primary: { enabled: true, label: 'Run UX Audit' },
+    secondary: { visible: true, label: 'Copy prompt for Claude Code instead' },
   }
 }
 
@@ -129,7 +143,7 @@ figma.showUI(__uiFiles__['ui'], {
 pushState()
 figma.on('selectionchange', pushState)
 
-figma.ui.onmessage = (msg: { type: string; height?: number; ok?: boolean }) => {
+figma.ui.onmessage = (msg: { type: string; height?: number; ok?: boolean; message?: string }) => {
   if (msg.type === 'resize' && typeof msg.height === 'number') {
     figma.ui.resize(
       UI_WIDTH,
@@ -145,12 +159,22 @@ figma.ui.onmessage = (msg: { type: string; height?: number; ok?: boolean }) => {
 
   if (msg.type === 'copied') {
     if (msg.ok) {
-      figma.notify('Audit prompt copied — paste it into Claude Code', { timeout: 2500 })
+      figma.notify('Prompt copied — paste it into Claude Code', { timeout: 2500 })
     } else {
       figma.notify('Could not copy automatically — select the text in the plugin window and press Cmd/Ctrl+C', {
         error: true,
         timeout: 4000,
       })
     }
+    return
+  }
+
+  if (msg.type === 'audit-success') {
+    figma.notify('UX audit complete', { timeout: 2500 })
+    return
+  }
+
+  if (msg.type === 'audit-error') {
+    figma.notify(msg.message || 'The audit request failed', { error: true, timeout: 5000 })
   }
 }

@@ -1,0 +1,16 @@
+{
+  "name": "ux-amino-backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Backend for UX Amino: fetches Figma frame data and runs the ux-design-audit rubric via the Anthropic API",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.115.0",
+    "@vercel/node": "^5.9.3"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2"
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "functions": {
+    "api/audit.ts": {
+      "maxDuration": 300
+    }
+  }
+}

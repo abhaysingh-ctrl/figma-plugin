@@ -13,7 +13,7 @@
   ],
   "networkAccess": {
     "allowedDomains": [
-      "none"
+      "https://ux-amino-backend.vercel.app"
     ]
   }
 }

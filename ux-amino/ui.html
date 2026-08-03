@@ -13,30 +13,44 @@
   .empty-state p:last-child { margin-bottom: 0; }
 
   .status { border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; background: #eef7f0; border-left: 3px solid #2f9e57; }
+  .status.is-warn { background: #fdf5e7; border-left-color: #ed940f; }
   .status-title { font-size: 12px; font-weight: 600; margin-bottom: 3px; word-break: break-word; }
   .status-body { font-size: 11px; color: #555; line-height: 1.45; }
 
-  .label { font-size: 10px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: #999; margin-bottom: 6px; }
-  #promptBox { width: 100%; height: 84px; resize: none; border: 1px solid #e5e5e5; border-radius: 8px; padding: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; line-height: 1.45; color: #444; background: #fafafa; word-break: break-all; margin-bottom: 12px; }
-  #promptBox:focus { outline: 2px solid #0d6efd; outline-offset: -1px; }
-  #promptBox:disabled { color: #aaa; }
+  .loading { display: flex; align-items: center; gap: 8px; border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; background: #eef2fb; }
+  .spinner { width: 14px; height: 14px; border-radius: 50%; border: 2px solid #c9d6f5; border-top-color: #0d6efd; animation: spin 0.8s linear infinite; flex-shrink: 0; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-text { font-size: 11px; color: #444; }
+
+  .error-box { border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; background: #fdeceb; border-left: 3px solid #e02b2b; font-size: 11px; color: #7a2015; line-height: 1.45; word-break: break-word; }
 
   .btn { width: 100%; padding: 10px; border: none; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; margin-bottom: 8px; transition: opacity 0.15s, background 0.15s; }
   .btn:disabled { opacity: 0.4; cursor: default; }
   .btn-primary { background: #0d6efd; color: #fff; }
   .btn-primary:hover:not(:disabled) { background: #0b5ed7; }
-  .btn-primary.is-copied { background: #2f9e57; }
   .btn-outline { background: transparent; border: 1.5px solid #ddd; color: #555; }
   .btn-outline:hover:not(:disabled) { border-color: #bbb; color: #333; }
+  .btn-outline.is-copied { border-color: #2f9e57; color: #2f9e57; }
   .hidden { display: none; }
 
+  .report { max-height: 440px; overflow-y: auto; overflow-x: auto; border: 1px solid #e5e5e5; border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; }
+  .report h1 { font-size: 14px; margin: 0 0 8px; }
+  .report h2 { font-size: 12.5px; margin: 14px 0 6px; }
+  .report h1:first-child, .report h2:first-child { margin-top: 0; }
+  .report p { font-size: 11px; line-height: 1.5; margin: 0 0 8px; }
+  .report hr { border: none; border-top: 1px solid #e5e5e5; margin: 10px 0; }
+  .report code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background: #f4f6fb; border-radius: 3px; padding: 1px 3px; font-size: 10px; }
+  .report ol, .report ul { font-size: 11px; line-height: 1.5; margin: 0 0 8px 18px; }
+  .report table { border-collapse: collapse; width: 100%; min-width: 460px; margin-bottom: 10px; font-size: 10.5px; }
+  .report th, .report td { border: 1px solid #e5e5e5; padding: 4px 6px; text-align: left; vertical-align: top; }
+  .report th { background: #f4f6fb; font-weight: 600; }
+
   .hint { font-size: 10px; color: #999; line-height: 1.45; }
-  .hint code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background: #f4f6fb; border-radius: 3px; padding: 1px 3px; }
 </style>
 </head>
 <body>
   <div class="header">UX Amino</div>
-  <div class="subtitle">UX Design Audit Hand-off</div>
+  <div class="subtitle">UX Design Audit</div>
 
   <div class="empty-state" id="emptyState">
     <svg width="120" height="90" viewBox="0 0 120 90" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -51,7 +65,7 @@
       <path d="M78 58 L96 84 L88 82 L92 92 L86 94 L82 84 L76 90 Z" fill="#0d6efd"/>
     </svg>
     <p id="emptyTitle"><strong>Select a frame</strong></p>
-    <p id="emptyBody">Its audit prompt will appear here.</p>
+    <p id="emptyBody">Its UX audit will run here.</p>
   </div>
 
   <div class="status hidden" id="status">
@@ -59,38 +73,157 @@
     <div class="status-body" id="statusBody"></div>
   </div>
 
-  <div class="label hidden" id="promptLabel">Prompt</div>
-  <textarea class="hidden" id="promptBox" readonly spellcheck="false" wrap="soft"></textarea>
+  <div class="loading hidden" id="loading">
+    <div class="spinner"></div>
+    <div class="loading-text" id="loadingText">Running UX audit… 0s</div>
+  </div>
 
-  <button class="btn btn-primary" id="btnCopy" disabled>Select a frame</button>
-  <button class="btn btn-outline hidden" id="btnCopyPrefix">Copy prompt text only</button>
+  <div class="error-box hidden" id="errorBox"></div>
+
+  <div class="report hidden" id="report"></div>
+
+  <button class="btn btn-primary" id="btnRun" disabled>Select a frame</button>
+  <button class="btn btn-outline hidden" id="btnCopy">Copy prompt for Claude Code instead</button>
 
   <div class="hint">
-    Paste into a Claude Code session with the Figma MCP connected &mdash; it triggers the
-    <code>ux-design-audit</code> skill.
+    Runs the <code>ux-design-audit</code> rubric via the UX Amino backend. If the
+    request fails, use the fallback to hand it off to a Claude Code session with
+    the Figma MCP connected instead.
   </div>
 
   <script>
+    // Must match the AUDIT_SHARED_SECRET env var on the deployed
+    // ux-amino-backend/. This is the plugin's only auth for that endpoint —
+    // acceptable since this is a private, unpublished, single-user plugin.
+    const AUDIT_SHARED_SECRET = 'REPLACE_WITH_YOUR_AUDIT_SHARED_SECRET';
+
     const emptyState = document.getElementById('emptyState');
     const emptyTitle = document.getElementById('emptyTitle');
     const emptyBody = document.getElementById('emptyBody');
     const status = document.getElementById('status');
     const statusTitle = document.getElementById('statusTitle');
     const statusBody = document.getElementById('statusBody');
-    const promptLabel = document.getElementById('promptLabel');
-    const promptBox = document.getElementById('promptBox');
+    const loading = document.getElementById('loading');
+    const loadingText = document.getElementById('loadingText');
+    const errorBox = document.getElementById('errorBox');
+    const report = document.getElementById('report');
+    const btnRun = document.getElementById('btnRun');
     const btnCopy = document.getElementById('btnCopy');
-    const btnCopyPrefix = document.getElementById('btnCopyPrefix');
 
-    let currentPrompt = '';
-    let copyBaseLabel = 'Select a frame';
+    let currentState = null;
     let flashTimer = null;
+    let elapsedTimer = null;
 
-    // ─── clipboard ───
+    // ─── markdown -> HTML (just enough for the ux-design-audit report format) ───
 
-    // execCommand first: it runs synchronously inside the click handler and is
-    // the reliable path inside Figma's plugin iframe, where
-    // navigator.clipboard.writeText() is often blocked by permissions policy.
+    function escapeHtml(s) {
+      return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    function applyInline(s) {
+      let out = escapeHtml(s);
+      out = out.replace(/`([^`]+)`/g, '<code>$1</code>');
+      out = out.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+      return out;
+    }
+
+    function splitTableRow(line) {
+      let trimmed = line.trim();
+      if (trimmed.startsWith('|')) trimmed = trimmed.slice(1);
+      if (trimmed.endsWith('|')) trimmed = trimmed.slice(0, -1);
+      return trimmed.split('|').map((c) => c.trim());
+    }
+
+    function isTableSeparator(line) {
+      return /^\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?$/.test(line.trim());
+    }
+
+    function mdToHtml(md) {
+      const lines = md.replace(/\r\n/g, '\n').split('\n');
+      let html = '';
+      let i = 0;
+      let paragraphBuf = [];
+
+      function flushParagraph() {
+        if (paragraphBuf.length) {
+          html += '<p>' + paragraphBuf.map(applyInline).join('<br>') + '</p>';
+          paragraphBuf = [];
+        }
+      }
+
+      while (i < lines.length) {
+        const line = lines[i];
+
+        if (line.trim() === '') {
+          flushParagraph();
+          i++;
+          continue;
+        }
+
+        const headingMatch = line.match(/^(#{1,6})\s+(.*)$/);
+        if (headingMatch) {
+          flushParagraph();
+          const level = headingMatch[1].length;
+          html += '<h' + level + '>' + applyInline(headingMatch[2]) + '</h' + level + '>';
+          i++;
+          continue;
+        }
+
+        if (/^(---|\*\*\*|___)\s*$/.test(line.trim())) {
+          flushParagraph();
+          html += '<hr>';
+          i++;
+          continue;
+        }
+
+        if (line.includes('|') && i + 1 < lines.length && isTableSeparator(lines[i + 1])) {
+          flushParagraph();
+          const headerCells = splitTableRow(line);
+          html +=
+            '<table><thead><tr>' +
+            headerCells.map((c) => '<th>' + applyInline(c) + '</th>').join('') +
+            '</tr></thead><tbody>';
+          i += 2;
+          while (i < lines.length && lines[i].includes('|') && lines[i].trim() !== '') {
+            const cells = splitTableRow(lines[i]);
+            html += '<tr>' + cells.map((c) => '<td>' + applyInline(c) + '</td>').join('') + '</tr>';
+            i++;
+          }
+          html += '</tbody></table>';
+          continue;
+        }
+
+        if (/^\d+\.\s+/.test(line)) {
+          flushParagraph();
+          html += '<ol>';
+          while (i < lines.length && /^\d+\.\s+/.test(lines[i])) {
+            html += '<li>' + applyInline(lines[i].replace(/^\d+\.\s+/, '')) + '</li>';
+            i++;
+          }
+          html += '</ol>';
+          continue;
+        }
+
+        if (/^[-*]\s+/.test(line)) {
+          flushParagraph();
+          html += '<ul>';
+          while (i < lines.length && /^[-*]\s+/.test(lines[i])) {
+            html += '<li>' + applyInline(lines[i].replace(/^[-*]\s+/, '')) + '</li>';
+            i++;
+          }
+          html += '</ul>';
+          continue;
+        }
+
+        paragraphBuf.push(line);
+        i++;
+      }
+      flushParagraph();
+      return html;
+    }
+
+    // ─── clipboard (manual fallback) ───
+
     function copyViaExecCommand(text) {
       const ta = document.createElement('textarea');
       ta.value = text;
@@ -121,72 +254,105 @@
       return Promise.resolve(false);
     }
 
-    function flashButton(btn, label, cls) {
-      if (flashTimer) clearTimeout(flashTimer);
-      const restoreTo = btn === btnCopy ? copyBaseLabel : 'Copy prompt text only';
-      btn.textContent = label;
-      if (cls) btn.classList.add(cls);
-      flashTimer = setTimeout(() => {
-        btn.textContent = restoreTo;
-        if (cls) btn.classList.remove(cls);
-        flashTimer = null;
-      }, 1600);
-    }
-
-    function handleCopy(btn, text) {
-      if (!text) return;
-      copyToClipboard(text).then((ok) => {
-        if (ok) {
-          flashButton(btn, 'Copied!', 'is-copied');
-        } else {
-          promptBox.removeAttribute('disabled');
-          promptBox.focus();
-          promptBox.select();
-          statusBody.textContent = 'Automatic copy was blocked. The prompt is selected above — press Cmd/Ctrl+C.';
-        }
+    btnCopy.onclick = () => {
+      if (!currentState || !currentState.prompt) return;
+      copyToClipboard(currentState.prompt).then((ok) => {
+        if (flashTimer) clearTimeout(flashTimer);
+        const restoreLabel = currentState.secondary.label;
+        btnCopy.textContent = ok ? 'Copied!' : restoreLabel;
+        if (ok) btnCopy.classList.add('is-copied');
+        flashTimer = setTimeout(() => {
+          btnCopy.textContent = restoreLabel;
+          btnCopy.classList.remove('is-copied');
+          flashTimer = null;
+        }, 1600);
         parent.postMessage({ pluginMessage: { type: 'copied', ok } }, '*');
       });
+    };
+
+    // ─── run audit ───
+
+    function setLoading(isLoading) {
+      loading.classList.toggle('hidden', !isLoading);
+      btnRun.disabled = isLoading || !currentState || currentState.kind !== 'ready';
+      if (isLoading) {
+        const start = Date.now();
+        loadingText.textContent = 'Running UX audit… 0s';
+        elapsedTimer = setInterval(() => {
+          loadingText.textContent = 'Running UX audit… ' + Math.round((Date.now() - start) / 1000) + 's';
+        }, 1000);
+      } else if (elapsedTimer) {
+        clearInterval(elapsedTimer);
+        elapsedTimer = null;
+      }
+      reportSize();
     }
 
-    btnCopy.onclick = () => {
-      if (!btnCopy.disabled) handleCopy(btnCopy, currentPrompt);
+    function runAudit() {
+      if (!currentState || currentState.kind !== 'ready' || !currentState.frameUrl) return;
+      report.classList.add('hidden');
+      errorBox.classList.add('hidden');
+      setLoading(true);
+
+      fetch(currentState.backendUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-audit-secret': AUDIT_SHARED_SECRET,
+        },
+        body: JSON.stringify({ url: currentState.frameUrl }),
+      })
+        .then((res) =>
+          res.json().then((body) => {
+            if (!res.ok) throw new Error(body && body.error ? body.error : 'Request failed (' + res.status + ')');
+            return body;
+          }),
+        )
+        .then((body) => {
+          report.innerHTML = mdToHtml(body.report || '');
+          report.classList.remove('hidden');
+          setLoading(false);
+          parent.postMessage({ pluginMessage: { type: 'audit-success' } }, '*');
+          reportSize();
+        })
+        .catch((err) => {
+          errorBox.textContent = err && err.message ? err.message : 'The audit request failed.';
+          errorBox.classList.remove('hidden');
+          setLoading(false);
+          parent.postMessage({ pluginMessage: { type: 'audit-error', message: errorBox.textContent } }, '*');
+          reportSize();
+        });
+    }
+
+    btnRun.onclick = () => {
+      if (!btnRun.disabled) runAudit();
     };
-    btnCopyPrefix.onclick = () => handleCopy(btnCopyPrefix, currentPrompt);
 
     // ─── state from code.ts ───
 
     window.onmessage = (ev) => {
       const msg = ev.data && ev.data.pluginMessage;
       if (!msg || msg.type !== 'state') return;
+      currentState = msg;
 
-      const isEmpty = msg.kind === 'empty';
+      const isEmpty = msg.kind === 'empty' || msg.kind === 'multi';
       emptyState.classList.toggle('hidden', !isEmpty);
       status.classList.toggle('hidden', isEmpty);
-      promptLabel.classList.toggle('hidden', isEmpty);
-      promptBox.classList.toggle('hidden', isEmpty);
 
       if (isEmpty) {
         emptyTitle.innerHTML = '<strong>' + msg.title + '</strong>';
         emptyBody.textContent = msg.body;
       } else {
+        status.classList.toggle('is-warn', msg.kind === 'no-file-key');
         statusTitle.textContent = msg.title;
         statusBody.textContent = msg.body;
       }
 
-      currentPrompt = msg.prompt || '';
-      promptBox.value = currentPrompt || 'Nothing to copy yet.';
-      if (currentPrompt) {
-        promptBox.removeAttribute('disabled');
-      } else {
-        promptBox.setAttribute('disabled', '');
-      }
+      btnRun.disabled = !msg.primary.enabled;
+      btnRun.textContent = msg.primary.label;
 
-      copyBaseLabel = msg.primary.label;
-      btnCopy.disabled = !msg.primary.enabled;
-      if (!flashTimer) btnCopy.textContent = copyBaseLabel;
-
-      btnCopyPrefix.classList.toggle('hidden', !msg.secondary.visible);
-      if (!flashTimer) btnCopyPrefix.textContent = msg.secondary.label;
+      btnCopy.classList.toggle('hidden', !msg.secondary.visible);
+      if (!flashTimer) btnCopy.textContent = msg.secondary.label;
 
       reportSize();
     };
@@ -194,8 +360,7 @@
     // ─── autosize ───
 
     function reportSize() {
-      const anchor = btnCopyPrefix.classList.contains('hidden') ? btnCopy : btnCopyPrefix;
-      const height = Math.ceil(anchor.getBoundingClientRect().bottom + 32);
+      const height = Math.ceil(document.body.getBoundingClientRect().height + 32);
       parent.postMessage({ pluginMessage: { type: 'resize', height } }, '*');
     }
     new ResizeObserver(reportSize).observe(document.body);
