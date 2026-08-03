@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: Inter, system-ui, sans-serif; font-size: 12px; color: #1e1e1e; padding: 16px; background: #fff; }
+  .header { font-size: 16px; font-weight: 700; margin-bottom: 4px; }
+  .subtitle { font-size: 11px; color: #888; margin-bottom: 16px; }
+
+  .empty-state { background: #f4f6fb; border-radius: 12px; padding: 20px 16px 16px; margin-bottom: 16px; text-align: center; }
+  .empty-state svg { display: block; margin: 0 auto 12px; }
+  .empty-state p { font-size: 11px; color: #555; line-height: 1.4; margin-bottom: 4px; }
+  .empty-state p:last-child { margin-bottom: 0; }
+
+  .status { border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; background: #eef7f0; border-left: 3px solid #2f9e57; }
+  .status-title { font-size: 12px; font-weight: 600; margin-bottom: 3px; word-break: break-word; }
+  .status-body { font-size: 11px; color: #555; line-height: 1.45; }
+
+  .label { font-size: 10px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: #999; margin-bottom: 6px; }
+  #promptBox { width: 100%; height: 84px; resize: none; border: 1px solid #e5e5e5; border-radius: 8px; padding: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; line-height: 1.45; color: #444; background: #fafafa; word-break: break-all; margin-bottom: 12px; }
+  #promptBox:focus { outline: 2px solid #0d6efd; outline-offset: -1px; }
+  #promptBox:disabled { color: #aaa; }
+
+  .btn { width: 100%; padding: 10px; border: none; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; margin-bottom: 8px; transition: opacity 0.15s, background 0.15s; }
+  .btn:disabled { opacity: 0.4; cursor: default; }
+  .btn-primary { background: #0d6efd; color: #fff; }
+  .btn-primary:hover:not(:disabled) { background: #0b5ed7; }
+  .btn-primary.is-copied { background: #2f9e57; }
+  .btn-outline { background: transparent; border: 1.5px solid #ddd; color: #555; }
+  .btn-outline:hover:not(:disabled) { border-color: #bbb; color: #333; }
+  .hidden { display: none; }
+
+  .hint { font-size: 10px; color: #999; line-height: 1.45; }
+  .hint code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background: #f4f6fb; border-radius: 3px; padding: 1px 3px; }
+</style>
+</head>
+<body>
+  <div class="header">UX Amino</div>
+  <div class="subtitle">UX Design Audit Hand-off</div>
+
+  <div class="empty-state" id="emptyState">
+    <svg width="120" height="90" viewBox="0 0 120 90" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="14" y="10" width="92" height="62" rx="6" fill="#eef2fb" stroke="#c9d6f5" stroke-width="1.5"/>
+      <rect x="24" y="22" width="46" height="6" rx="3" fill="#c9d6f5"/>
+      <rect x="24" y="34" width="72" height="6" rx="3" fill="#dbe4fa"/>
+      <rect x="24" y="46" width="34" height="6" rx="3" fill="#dbe4fa"/>
+      <rect x="10" y="6" width="8" height="8" rx="1.5" fill="#fff" stroke="#0d6efd" stroke-width="1.5"/>
+      <rect x="102" y="6" width="8" height="8" rx="1.5" fill="#fff" stroke="#0d6efd" stroke-width="1.5"/>
+      <rect x="10" y="68" width="8" height="8" rx="1.5" fill="#fff" stroke="#0d6efd" stroke-width="1.5"/>
+      <rect x="102" y="68" width="8" height="8" rx="1.5" fill="#fff" stroke="#0d6efd" stroke-width="1.5"/>
+      <path d="M78 58 L96 84 L88 82 L92 92 L86 94 L82 84 L76 90 Z" fill="#0d6efd"/>
+    </svg>
+    <p id="emptyTitle"><strong>Select a frame</strong></p>
+    <p id="emptyBody">Its audit prompt will appear here.</p>
+  </div>
+
+  <div class="status hidden" id="status">
+    <div class="status-title" id="statusTitle"></div>
+    <div class="status-body" id="statusBody"></div>
+  </div>
+
+  <div class="label hidden" id="promptLabel">Prompt</div>
+  <textarea class="hidden" id="promptBox" readonly spellcheck="false" wrap="soft"></textarea>
+
+  <button class="btn btn-primary" id="btnCopy" disabled>Select a frame</button>
+  <button class="btn btn-outline hidden" id="btnCopyPrefix">Copy prompt text only</button>
+
+  <div class="hint">
+    Paste into a Claude Code session with the Figma MCP connected &mdash; it triggers the
+    <code>ux-design-audit</code> skill.
+  </div>
+
+  <script>
+    const emptyState = document.getElementById('emptyState');
+    const emptyTitle = document.getElementById('emptyTitle');
+    const emptyBody = document.getElementById('emptyBody');
+    const status = document.getElementById('status');
+    const statusTitle = document.getElementById('statusTitle');
+    const statusBody = document.getElementById('statusBody');
+    const promptLabel = document.getElementById('promptLabel');
+    const promptBox = document.getElementById('promptBox');
+    const btnCopy = document.getElementById('btnCopy');
+    const btnCopyPrefix = document.getElementById('btnCopyPrefix');
+
+    let currentPrompt = '';
+    let copyBaseLabel = 'Select a frame';
+    let flashTimer = null;
+
+    // ─── clipboard ───
+
+    // execCommand first: it runs synchronously inside the click handler and is
+    // the reliable path inside Figma's plugin iframe, where
+    // navigator.clipboard.writeText() is often blocked by permissions policy.
+    function copyViaExecCommand(text) {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.top = '-1000px';
+      ta.style.left = '0';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      let ok = false;
+      try {
+        ta.focus();
+        ta.select();
+        ta.setSelectionRange(0, text.length);
+        ok = document.execCommand('copy');
+      } catch (e) {
+        ok = false;
+      }
+      document.body.removeChild(ta);
+      return ok;
+    }
+
+    function copyToClipboard(text) {
+      if (copyViaExecCommand(text)) return Promise.resolve(true);
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        return navigator.clipboard.writeText(text).then(() => true).catch(() => false);
+      }
+      return Promise.resolve(false);
+    }
+
+    function flashButton(btn, label, cls) {
+      if (flashTimer) clearTimeout(flashTimer);
+      const restoreTo = btn === btnCopy ? copyBaseLabel : 'Copy prompt text only';
+      btn.textContent = label;
+      if (cls) btn.classList.add(cls);
+      flashTimer = setTimeout(() => {
+        btn.textContent = restoreTo;
+        if (cls) btn.classList.remove(cls);
+        flashTimer = null;
+      }, 1600);
+    }
+
+    function handleCopy(btn, text) {
+      if (!text) return;
+      copyToClipboard(text).then((ok) => {
+        if (ok) {
+          flashButton(btn, 'Copied!', 'is-copied');
+        } else {
+          promptBox.removeAttribute('disabled');
+          promptBox.focus();
+          promptBox.select();
+          statusBody.textContent = 'Automatic copy was blocked. The prompt is selected above — press Cmd/Ctrl+C.';
+        }
+        parent.postMessage({ pluginMessage: { type: 'copied', ok } }, '*');
+      });
+    }
+
+    btnCopy.onclick = () => {
+      if (!btnCopy.disabled) handleCopy(btnCopy, currentPrompt);
+    };
+    btnCopyPrefix.onclick = () => handleCopy(btnCopyPrefix, currentPrompt);
+
+    // ─── state from code.ts ───
+
+    window.onmessage = (ev) => {
+      const msg = ev.data && ev.data.pluginMessage;
+      if (!msg || msg.type !== 'state') return;
+
+      const isEmpty = msg.kind === 'empty';
+      emptyState.classList.toggle('hidden', !isEmpty);
+      status.classList.toggle('hidden', isEmpty);
+      promptLabel.classList.toggle('hidden', isEmpty);
+      promptBox.classList.toggle('hidden', isEmpty);
+
+      if (isEmpty) {
+        emptyTitle.innerHTML = '<strong>' + msg.title + '</strong>';
+        emptyBody.textContent = msg.body;
+      } else {
+        statusTitle.textContent = msg.title;
+        statusBody.textContent = msg.body;
+      }
+
+      currentPrompt = msg.prompt || '';
+      promptBox.value = currentPrompt || 'Nothing to copy yet.';
+      if (currentPrompt) {
+        promptBox.removeAttribute('disabled');
+      } else {
+        promptBox.setAttribute('disabled', '');
+      }
+
+      copyBaseLabel = msg.primary.label;
+      btnCopy.disabled = !msg.primary.enabled;
+      if (!flashTimer) btnCopy.textContent = copyBaseLabel;
+
+      btnCopyPrefix.classList.toggle('hidden', !msg.secondary.visible);
+      if (!flashTimer) btnCopyPrefix.textContent = msg.secondary.label;
+
+      reportSize();
+    };
+
+    // ─── autosize ───
+
+    function reportSize() {
+      const anchor = btnCopyPrefix.classList.contains('hidden') ? btnCopy : btnCopyPrefix;
+      const height = Math.ceil(anchor.getBoundingClientRect().bottom + 32);
+      parent.postMessage({ pluginMessage: { type: 'resize', height } }, '*');
+    }
+    new ResizeObserver(reportSize).observe(document.body);
+    requestAnimationFrame(reportSize);
+
+    parent.postMessage({ pluginMessage: { type: 'ready' } }, '*');
+  </script>
+</body>
+</html>

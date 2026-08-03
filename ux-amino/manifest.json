@@ -1,0 +1,19 @@
+{
+  "name": "UX Amino",
+  "id": "ux-amino-brightlifecare",
+  "api": "1.0.0",
+  "main": "code.js",
+  "ui": {
+    "ui": "ui.html"
+  },
+  "enablePrivatePluginApi": true,
+  "documentAccess": "dynamic-page",
+  "editorType": [
+    "figma"
+  ],
+  "networkAccess": {
+    "allowedDomains": [
+      "none"
+    ]
+  }
+}

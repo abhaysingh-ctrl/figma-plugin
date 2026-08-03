@@ -1,0 +1,23 @@
+{
+  "name": "ux-amino",
+  "version": "0.1.0",
+  "description": "Hands a selected Figma frame off to Claude Code's ux-design-audit skill",
+  "main": "code.ts",
+  "scripts": {
+    "build": "esbuild code.ts --bundle --outfile=code.js --target=es2017",
+    "watch": "esbuild code.ts --bundle --outfile=code.js --target=es2017 --watch",
+    "release": "commit-and-tag-version"
+  },
+  "author": "",
+  "license": "",
+  "devDependencies": {
+    "@eslint/js": "^9.39.4",
+    "@figma/eslint-plugin-figma-plugins": "*",
+    "@figma/plugin-typings": "*",
+    "commit-and-tag-version": "^13.1.2",
+    "esbuild": "^0.20.0",
+    "eslint": "^9.39.4",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.57.1"
+  }
+}
