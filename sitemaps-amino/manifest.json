@@ -1,0 +1,18 @@
+{
+  "name": "Sitemaps Amino",
+  "id": "sitemaps-amino-brightlifecare",
+  "api": "1.0.0",
+  "main": "code.js",
+  "ui": {
+    "ui": "ui.html"
+  },
+  "documentAccess": "dynamic-page",
+  "editorType": [
+    "figma"
+  ],
+  "networkAccess": {
+    "allowedDomains": [
+      "https://sitemaps-amino-backend.vercel.app"
+    ]
+  }
+}

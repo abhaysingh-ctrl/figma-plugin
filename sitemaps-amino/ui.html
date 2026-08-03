@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: Inter, system-ui, sans-serif; font-size: 12px; color: #1e1e1e; padding: 16px; background: #fff; }
+  .header { font-size: 16px; font-weight: 700; margin-bottom: 4px; }
+  .subtitle { font-size: 11px; color: #888; margin-bottom: 16px; }
+
+  label { display: block; font-size: 11px; font-weight: 600; color: #444; margin-bottom: 6px; }
+  input[type="text"], input[type="number"] {
+    width: 100%; padding: 8px 10px; border: 1.5px solid #ddd; border-radius: 8px;
+    font-size: 12px; margin-bottom: 12px; font-family: inherit;
+  }
+  input[type="text"]:focus, input[type="number"]:focus { outline: none; border-color: #0d6efd; }
+
+  .advanced { margin-bottom: 4px; }
+  .advanced summary { font-size: 11px; color: #666; cursor: pointer; margin-bottom: 8px; }
+  .advanced-fields { display: flex; gap: 10px; }
+  .advanced-fields > div { flex: 1; }
+
+  .status { border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; background: #eef7f0; border-left: 3px solid #2f9e57; }
+  .status.is-warn { background: #fdf5e7; border-left-color: #ed940f; }
+  .status-title { font-size: 12px; font-weight: 600; margin-bottom: 3px; word-break: break-word; }
+  .status-body { font-size: 11px; color: #555; line-height: 1.45; }
+
+  .loading { display: flex; align-items: center; gap: 8px; border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; background: #eef2fb; }
+  .spinner { width: 14px; height: 14px; border-radius: 50%; border: 2px solid #c9d6f5; border-top-color: #0d6efd; animation: spin 0.8s linear infinite; flex-shrink: 0; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-text { font-size: 11px; color: #444; }
+
+  .error-box { border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; background: #fdeceb; border-left: 3px solid #e02b2b; font-size: 11px; color: #7a2015; line-height: 1.45; word-break: break-word; }
+  .warn-box { border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; background: #fdf5e7; border-left: 3px solid #ed940f; font-size: 11px; color: #6b4c05; line-height: 1.45; word-break: break-word; }
+
+  .btn { width: 100%; padding: 10px; border: none; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; margin-bottom: 8px; transition: opacity 0.15s, background 0.15s; }
+  .btn:disabled { opacity: 0.4; cursor: default; }
+  .btn-primary { background: #0d6efd; color: #fff; }
+  .btn-primary:hover:not(:disabled) { background: #0b5ed7; }
+  .hidden { display: none; }
+
+  .hint { font-size: 10px; color: #999; line-height: 1.45; }
+</style>
+</head>
+<body>
+  <div class="header">Sitemaps Amino</div>
+  <div class="subtitle">Generate a visual sitemap from a website URL</div>
+
+  <label for="urlInput">Website URL</label>
+  <input type="text" id="urlInput" placeholder="https://example.com" />
+
+  <details class="advanced">
+    <summary>Advanced</summary>
+    <div class="advanced-fields">
+      <div>
+        <label for="maxDepthInput">Max depth</label>
+        <input type="number" id="maxDepthInput" min="1" max="6" value="3" />
+      </div>
+      <div>
+        <label for="maxPagesInput">Max pages</label>
+        <input type="number" id="maxPagesInput" min="1" max="500" value="300" />
+      </div>
+    </div>
+  </details>
+
+  <div class="status hidden" id="status">
+    <div class="status-title" id="statusTitle"></div>
+    <div class="status-body" id="statusBody"></div>
+  </div>
+
+  <div class="warn-box hidden" id="warnBox"></div>
+
+  <div class="loading hidden" id="loading">
+    <div class="spinner"></div>
+    <div class="loading-text" id="loadingText">Generating sitemap… 0s</div>
+  </div>
+
+  <div class="error-box hidden" id="errorBox"></div>
+
+  <button class="btn btn-primary" id="btnRun">Generate Sitemap</button>
+
+  <div class="hint">
+    Tries <code>sitemap.xml</code> first, then falls back to crawling same-domain
+    links from the homepage. Runs via the Sitemaps Amino backend.
+  </div>
+
+  <script>
+    // Must match the SITEMAP_SHARED_SECRET env var on the deployed
+    // sitemaps-amino-backend/. This is the plugin's only auth for that
+    // endpoint — acceptable since this is a private, unpublished, single-user
+    // plugin (see ux-amino's ui.html for the same pattern).
+    const SITEMAP_SHARED_SECRET = 'REPLACE_WITH_YOUR_SITEMAP_SHARED_SECRET';
+
+    const urlInput = document.getElementById('urlInput');
+    const maxDepthInput = document.getElementById('maxDepthInput');
+    const maxPagesInput = document.getElementById('maxPagesInput');
+    const status = document.getElementById('status');
+    const statusTitle = document.getElementById('statusTitle');
+    const statusBody = document.getElementById('statusBody');
+    const warnBox = document.getElementById('warnBox');
+    const loading = document.getElementById('loading');
+    const loadingText = document.getElementById('loadingText');
+    const errorBox = document.getElementById('errorBox');
+    const btnRun = document.getElementById('btnRun');
+
+    let backendUrl = '';
+    let elapsedTimer = null;
+
+    function setLoading(isLoading) {
+      loading.classList.toggle('hidden', !isLoading);
+      btnRun.disabled = isLoading;
+      if (isLoading) {
+        const start = Date.now();
+        loadingText.textContent = 'Generating sitemap… 0s';
+        elapsedTimer = setInterval(() => {
+          loadingText.textContent = 'Generating sitemap… ' + Math.round((Date.now() - start) / 1000) + 's';
+        }, 1000);
+      } else if (elapsedTimer) {
+        clearInterval(elapsedTimer);
+        elapsedTimer = null;
+      }
+      reportSize();
+    }
+
+    function showStatus(kind, title, body) {
+      status.classList.remove('hidden');
+      status.classList.toggle('is-warn', kind === 'warn');
+      statusTitle.textContent = title;
+      statusBody.textContent = body;
+    }
+
+    function generateSitemap() {
+      const url = urlInput.value.trim();
+      if (!url) {
+        errorBox.textContent = 'Enter a website URL first.';
+        errorBox.classList.remove('hidden');
+        reportSize();
+        return;
+      }
+      if (!backendUrl) {
+        errorBox.textContent = 'Backend URL not initialized yet — try again in a moment.';
+        errorBox.classList.remove('hidden');
+        reportSize();
+        return;
+      }
+
+      status.classList.add('hidden');
+      warnBox.classList.add('hidden');
+      errorBox.classList.add('hidden');
+      setLoading(true);
+
+      const body = { url: url };
+      const maxDepth = parseInt(maxDepthInput.value, 10);
+      const maxPages = parseInt(maxPagesInput.value, 10);
+      if (!isNaN(maxDepth)) body.maxDepth = maxDepth;
+      if (!isNaN(maxPages)) body.maxPages = maxPages;
+
+      fetch(backendUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-sitemap-secret': SITEMAP_SHARED_SECRET,
+        },
+        body: JSON.stringify(body),
+      })
+        .then((res) =>
+          res.json().then((data) => {
+            if (!res.ok) throw new Error(data && data.error ? data.error : 'Request failed (' + res.status + ')');
+            return data;
+          }),
+        )
+        .then((data) => {
+          setLoading(false);
+          const via = data.source === 'sitemap' ? 'via sitemap.xml' : 'via crawl (fallback)';
+          showStatus('ok', data.totalPages + ' pages found', via);
+          if (data.truncated || (data.warnings && data.warnings.length)) {
+            const lines = [];
+            if (data.truncated) lines.push('Result was truncated — not every page is shown.');
+            if (data.warnings) lines.push.apply(lines, data.warnings);
+            warnBox.textContent = lines.join(' ');
+            warnBox.classList.remove('hidden');
+          }
+          parent.postMessage({ pluginMessage: { type: 'draw-sitemap', data: data } }, '*');
+          reportSize();
+        })
+        .catch((err) => {
+          setLoading(false);
+          errorBox.textContent = err && err.message ? err.message : 'The request failed.';
+          errorBox.classList.remove('hidden');
+          reportSize();
+        });
+    }
+
+    btnRun.onclick = () => {
+      if (!btnRun.disabled) generateSitemap();
+    };
+
+    window.onmessage = (ev) => {
+      const msg = ev.data && ev.data.pluginMessage;
+      if (!msg) return;
+
+      if (msg.type === 'init') {
+        backendUrl = msg.backendUrl;
+        return;
+      }
+
+      if (msg.type === 'draw-success') {
+        // status box already shows the page count from the fetch response
+        return;
+      }
+
+      if (msg.type === 'draw-error') {
+        errorBox.textContent = msg.message || 'Failed to draw the sitemap.';
+        errorBox.classList.remove('hidden');
+        reportSize();
+      }
+    };
+
+    // ─── autosize ───
+
+    function reportSize() {
+      const height = Math.ceil(document.body.getBoundingClientRect().height + 32);
+      parent.postMessage({ pluginMessage: { type: 'resize', height } }, '*');
+    }
+    new ResizeObserver(reportSize).observe(document.body);
+    requestAnimationFrame(reportSize);
+
+    parent.postMessage({ pluginMessage: { type: 'ready' } }, '*');
+  </script>
+</body>
+</html>

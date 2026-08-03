@@ -1,0 +1,18 @@
+{
+  "name": "sitemaps-amino-backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Backend for Sitemaps Amino: discovers a website's page structure via sitemap.xml or crawling",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@vercel/node": "^5.9.3",
+    "cheerio": "^1.0.0",
+    "fast-xml-parser": "^4.5.0",
+    "robots-parser": "^3.0.1"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2"
+  }
+}
