@@ -42,13 +42,18 @@ in Figma.
 
 ```bash
 npm install
-npx vercel dev
+npm run dev
 ```
 
-Then:
+The local server runs without the Vercel CLI at `http://localhost:3300`. To
+enable the same shared-secret check used in deployment, create a `.env` file
+from `.env.example` and set `SITEMAP_SHARED_SECRET`. The check is skipped when
+the variable is not set.
+
+Then make a request:
 
 ```bash
-curl -X POST http://localhost:3000/api/generate \
+curl -X POST http://localhost:3300/api/generate \
   -H "Content-Type: application/json" \
   -H "x-sitemap-secret: <your secret>" \
   -d '{"url":"https://example.com"}'
@@ -56,6 +61,8 @@ curl -X POST http://localhost:3000/api/generate \
 
 Optional body fields: `maxDepth` (default 3, hard cap 6) and `maxPages`
 (default 300, hard cap 500).
+
+Set a different port with `PORT`, for example `PORT=3400 npm run dev`.
 
 ## Type-checking
 
