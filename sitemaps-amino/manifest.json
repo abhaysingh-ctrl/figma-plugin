@@ -11,6 +11,9 @@
     "figma"
   ],
   "networkAccess": {
+    "devAllowedDomains": [
+      "http://localhost:3300"
+    ],
     "allowedDomains": [
       "https://sitemaps-amino-backend.vercel.app"
     ]

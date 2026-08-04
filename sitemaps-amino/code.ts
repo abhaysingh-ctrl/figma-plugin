@@ -11,7 +11,8 @@ const UI_MAX_HEIGHT = 640
 
 // Must match manifest.json's networkAccess.allowedDomains and the deployed
 // sitemaps-amino-backend/ domain. Update all three together after deploying.
-const BACKEND_URL = 'https://sitemaps-amino-backend.vercel.app/api/generate'
+// const BACKEND_URL = 'https://sitemaps-amino-backend.vercel.app/api/generate'
+const BACKEND_URL = 'http://localhost:3300/api/generate'
 
 const BOX_WIDTH = 200
 const BOX_HEIGHT = 64
@@ -83,9 +84,9 @@ function computeLayout(nodes: SitemapNode[]): Map<string, Position> {
       children.length === 0
         ? BOX_WIDTH
         : Math.max(
-            BOX_WIDTH,
-            children.reduce((sum, childId) => sum + subtreeWidth(childId), 0) + (children.length - 1) * H_GAP,
-          )
+          BOX_WIDTH,
+          children.reduce((sum, childId) => sum + subtreeWidth(childId), 0) + (children.length - 1) * H_GAP,
+        )
     widthCache.set(id, width)
     return width
   }
