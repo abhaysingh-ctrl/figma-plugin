@@ -4,6 +4,7 @@
   "private": true,
   "description": "Backend for Sitemaps Amino: discovers a website's page structure via sitemap.xml or crawling",
   "scripts": {
+    "dev": "tsx local-server.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -13,6 +14,7 @@
     "robots-parser": "^3.0.1"
   },
   "devDependencies": {
+    "tsx": "^4.23.5",
     "typescript": "^7.0.2"
   }
 }
